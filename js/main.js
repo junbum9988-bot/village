@@ -1,14 +1,17 @@
 /**
- * 우리 반 마을 꾸미기 - 프로토타입 1단계
+ * 우리 반 마을 꾸미기 - 프로토타입
  *
- * 목표: 4x5 마을을 슬라임으로 걸어다니며 크기와 카메라 느낌을 확인한다.
- * 이번 단계에서 다루지 않는 것: Supabase, 로그인, 저장, 인벤토리, 꾸미기 기능.
+ * 이번 단계 목표: 로그인 화면(임시 프론트엔드 계정)을 통과해야 마을에 들어갈 수 있게 하고,
+ * 로그인한 학생의 이름/공간에서 게임이 시작되도록 한다.
+ * 계정 데이터는 js/accounts.js 에서만 관리한다 (이 파일은 로그인 "흐름"만 다룬다).
+ *
+ * 다루지 않는 것: Supabase 연동, 실제 인증/DB, 저장, 인벤토리, 꾸미기 기능.
  *
  * 구성
- *   - buildMap()   : 방/통로/광장 데이터를 만들고 #world에 DOM으로 렌더링
- *   - input        : 방향키 / WASD 입력 수집
- *   - update(dt)    : 플레이어 이동 + 카메라 추적 + HUD 갱신
- *   - render()       : 계산된 좌표를 실제 화면(transform)에 반영
+ *   - 맵 데이터 생성   : 방/통로/광장 데이터를 만들고 #world에 DOM으로 렌더링 (로그인과 무관, 한 번만 수행)
+ *   - 입력 처리        : 방향키 / WASD / 화면 터치 방향키 입력 수집 (로그인 여부와 무관하게 항상 리스닝)
+ *   - 게임 루프        : 로그인에 성공했을 때만 실행 (update → 이동/카메라, render → 화면 반영)
+ *   - 로그인 흐름       : 접속 코드+PIN 검사, 성공 시 해당 학생 공간에서 게임 시작, 로그아웃 시 로그인 화면으로 복귀
  */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -26,6 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const WORLD_H = PATH_W * (ROWS + 1) + ROOM_H * ROWS;
 
   // 학생 배치 (요구사항의 행/열 순서 그대로). 마지막 칸(4행 5열)은 광장.
+  // 각 이름은 js/accounts.js의 계정 이름과 정확히 일치해야 로그인 시 해당 공간을 찾을 수 있다.
   const LAYOUT = [
     ["준범", "강민", "동국", "라임", "태현"],
     ["서준", "민호", "민서", "준석", "아영"],
@@ -38,7 +42,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const CAMERA_TAU = 0.15; // 카메라가 목표 위치를 따라가는 부드러움 정도(초). 작을수록 빠르게 따라붙음.
 
   // ---------------------------------------------------------
-  // 2. 맵 데이터 생성
+  // 2. 맵 데이터 생성 (로그인 여부와 무관하게 한 번만 만들어둔다)
   // ---------------------------------------------------------
   const worldEl = document.getElementById("world");
   worldEl.style.width = `${WORLD_W}px`;
@@ -99,23 +103,27 @@ document.addEventListener("DOMContentLoaded", () => {
   worldEl.appendChild(fragment);
 
   // ---------------------------------------------------------
-  // 3. 플레이어 초기 위치 (준범 공간의 입구 근처)
+  // 3. DOM 참조
   // ---------------------------------------------------------
-  const startRoom = rooms.find((r) => r.name === "준범");
-
-  const player = {
-    x: startRoom.x + startRoom.w / 2,
-    y: startRoom.y + startRoom.h - 100, // 표지판 바로 위, 입구 근처
-    facingLeft: false,
-    moving: false,
-  };
-
-  const camera = { x: 0, y: 0 };
-
-  // 카메라 초기값도 플레이어 위치 기준으로 즉시 맞춰서 시작 시 튀는 현상을 방지
   const stageEl = document.getElementById("game-stage");
   const playerEl = document.getElementById("player");
+  const hudNameEl = document.getElementById("hud-name");
   const hudLocationEl = document.getElementById("hud-location");
+
+  const loginScreenEl = document.getElementById("login-screen");
+  const gameScreenEl = document.getElementById("game-screen");
+  const loginFormEl = document.getElementById("login-form");
+  const loginCodeEl = document.getElementById("login-code");
+  const loginPinEl = document.getElementById("login-pin");
+  const loginErrorEl = document.getElementById("login-error");
+  const logoutBtnEl = document.getElementById("btn-logout");
+
+  // ---------------------------------------------------------
+  // 4. 플레이어 / 카메라 상태
+  // ---------------------------------------------------------
+  // 실제 시작 좌표는 로그인에 성공했을 때 placePlayerForAccount()가 채워 넣는다.
+  const player = { x: 0, y: 0, facingLeft: false, moving: false };
+  const camera = { x: 0, y: 0 };
 
   function getClampedCamera(targetX, targetY) {
     const viewW = stageEl.clientWidth;
@@ -130,12 +138,8 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   }
 
-  const initialCam = getClampedCamera(player.x, player.y);
-  camera.x = initialCam.x;
-  camera.y = initialCam.y;
-
   // ---------------------------------------------------------
-  // 4. 입력 처리 (방향키 + WASD)
+  // 5. 입력 처리 (방향키 + WASD) - 로그인 여부와 무관하게 항상 리스닝한다.
   // ---------------------------------------------------------
   // 눌려있는 방향을 "up" / "down" / "left" / "right" 로 정규화해서 관리한다.
   // e.code(물리적 키 위치)를 우선으로 보고, 없는 경우에는 e.key로도 인식한다.
@@ -214,9 +218,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ---------------------------------------------------------
-  // 4-1. 화면 이동키 (모바일 / 태블릿 / 전자칠판용 터치 십자 방향키)
+  // 5-1. 화면 이동키 (모바일 / 태블릿 / 전자칠판용 터치 십자 방향키)
   // ---------------------------------------------------------
-  // 키보드와는 별도의 touchPressed Set을 사용한다 (충돌 방지 이유는 위 4번 주석 참고).
+  // 키보드와는 별도의 touchPressed Set을 사용한다 (충돌 방지 이유는 위 5번 주석 참고).
   // Pointer Event를 사용해 마우스/터치/펜을 하나의 로직으로 통일하고,
   // 버튼별로 눌고 있는 pointerId를 추적해 멀티터치 상황(다른 손가락이 다른 버튼을 누르는 경우)에도
   // 한쪽 손가락을 떼도 다른 손가락이 여전히 누르고 있으면 계속 이동하도록 처리한다.
@@ -261,7 +265,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ---------------------------------------------------------
-  // 5. 현재 위치(구역) 판별 -> HUD 문구
+  // 6. 현재 위치(구역) 판별 -> HUD 문구
   // ---------------------------------------------------------
   let lastLocationLabel = "";
 
@@ -287,9 +291,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ---------------------------------------------------------
-  // 6. 메인 루프
+  // 7. 게임 루프 (로그인에 성공했을 때만 동작)
   // ---------------------------------------------------------
   let lastTime = null;
+  let rafId = null;
 
   function update(dt) {
     const { dx, dy } = getInputVector();
@@ -335,9 +340,106 @@ document.addEventListener("DOMContentLoaded", () => {
     update(dt);
     render();
 
-    requestAnimationFrame(loop);
+    rafId = requestAnimationFrame(loop);
   }
 
-  render(); // 첫 프레임을 즉시 그려서 로딩 중 빈 화면이 보이지 않도록 함
-  requestAnimationFrame(loop);
+  function startLoop() {
+    lastTime = null;
+    if (rafId === null) {
+      rafId = requestAnimationFrame(loop);
+    }
+  }
+
+  function stopLoop() {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+  }
+
+  // ---------------------------------------------------------
+  // 8. 로그인 흐름 (임시 프론트엔드 계정 - js/accounts.js)
+  // ---------------------------------------------------------
+  function placePlayerForAccount(account) {
+    const room = rooms.find((r) => r.name === account.name);
+    // LAYOUT과 accounts.js의 이름이 어긋나면 방을 못 찾을 수 있으니 방어적으로 처리
+    const startRoom = room || rooms[0];
+
+    player.x = startRoom.x + startRoom.w / 2;
+    player.y = startRoom.y + startRoom.h - 100; // 표지판 바로 위, 입구 근처
+    player.facingLeft = false;
+    player.moving = false;
+
+    const initialCam = getClampedCamera(player.x, player.y);
+    camera.x = initialCam.x;
+    camera.y = initialCam.y;
+
+    lastLocationLabel = ""; // 위치 라벨을 강제로 다시 계산해서 즉시 반영되게 함
+  }
+
+  function showLoginError(message) {
+    loginErrorEl.textContent = message;
+  }
+
+  function clearLoginError() {
+    loginErrorEl.textContent = "";
+  }
+
+  function enterGame(account) {
+    hudNameEl.textContent = `👤 ${account.name}`;
+
+    loginScreenEl.hidden = true;
+    gameScreenEl.hidden = false;
+
+    // game-screen이 화면에 보여야 game-stage의 실제 크기를 잴 수 있으므로,
+    // hidden을 푼 다음에 플레이어 시작 위치/카메라를 계산한다.
+    placePlayerForAccount(account);
+    updateLocationLabel();
+    render();
+
+    startLoop();
+  }
+
+  function exitToLogin() {
+    stopLoop();
+
+    keyboardPressed.clear();
+    touchPressed.clear();
+
+    gameScreenEl.hidden = true;
+    loginScreenEl.hidden = false;
+
+    // 공용 PC 사용을 고려해 로그인 정보를 남기지 않고 완전히 비운다.
+    loginFormEl.reset();
+    clearLoginError();
+    loginCodeEl.focus();
+  }
+
+  loginFormEl.addEventListener("submit", (e) => {
+    e.preventDefault();
+
+    const code = loginCodeEl.value;
+    const pin = loginPinEl.value;
+
+    if (!code.trim() || !pin.trim()) {
+      showLoginError("접속 코드와 PIN을 모두 입력해주세요.");
+      return;
+    }
+
+    const account = findAccount(code, pin);
+    if (!account) {
+      showLoginError("접속 코드 또는 PIN이 올바르지 않습니다.");
+      loginPinEl.value = "";
+      loginPinEl.focus();
+      return;
+    }
+
+    clearLoginError();
+    enterGame(account);
+  });
+
+  logoutBtnEl.addEventListener("click", exitToLogin);
+
+  // 페이지를 열면 로그인 화면이 먼저 보이는 상태이므로, 접속 코드 입력창에 포커스를 맞춰준다.
+  loginCodeEl.focus();
 });

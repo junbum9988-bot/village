@@ -8,59 +8,87 @@
 </head>
 <body>
   <div id="app">
-    <!-- 상단 헤더: 로고, 현재 학생 이름, 메뉴 버튼 등 -->
-    <!-- 메뉴(내 방 꾸미기 / 마을 탐험하기)는 아직 기능이 없어 이번 프로토타입 단계에서는 숨겨둡니다. -->
-    <header id="app-header">
-      <h1 id="app-title">우리 반 마을</h1>
-      <nav id="app-nav">
-        <button id="btn-my-room" type="button">내 방 꾸미기</button>
-        <button id="btn-explore" type="button">마을 탐험하기</button>
-      </nav>
-    </header>
+    <!-- 로그인 화면: 접속하면 게임 화면보다 먼저 이 화면이 보입니다. -->
+    <!-- 임시 프론트엔드 계정(js/accounts.js)으로만 로그인 흐름을 확인하는 단계이며, 회원가입은 없습니다. -->
+    <div id="login-screen">
+      <form id="login-form" class="login-card">
+        <h1 class="login-title">우리 반 마을</h1>
+        <p class="login-subtitle">접속 코드와 PIN을 입력하고 마을에 들어가 보세요.</p>
 
-    <!-- 메인 게임 화면: 마을 월드 렌더링 영역 -->
-    <main id="game-container">
-      <div id="game-stage">
-        <!-- #world: 방/통로/광장/표지판을 담는 거대한 월드. 카메라 이동은 이 요소의 transform으로 처리합니다. -->
-        <div id="world"></div>
+        <label class="login-field">
+          <span>접속 코드</span>
+          <input type="text" id="login-code" name="login-code" autocomplete="off" autocapitalize="characters" placeholder="예: S01" />
+        </label>
 
-        <!-- 플레이어 슬라임: 항상 game-stage 기준으로 좌표를 계산해 배치합니다. -->
-        <div id="player">
-          <div class="slime">
-            <span class="slime-eye slime-eye-left"></span>
-            <span class="slime-eye slime-eye-right"></span>
+        <label class="login-field">
+          <span>PIN</span>
+          <input type="password" id="login-pin" name="login-pin" autocomplete="off" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="4자리 숫자" />
+        </label>
+
+        <p id="login-error" class="login-error" role="alert"></p>
+
+        <button type="submit" id="login-submit">마을 들어가기</button>
+      </form>
+    </div>
+
+    <!-- 게임 화면: 로그인에 성공하기 전까지 숨겨둡니다. -->
+    <div id="game-screen" hidden>
+      <!-- 상단 헤더: 로고, 현재 학생 이름, 메뉴 버튼 등 -->
+      <!-- 메뉴(내 방 꾸미기 / 마을 탐험하기)는 아직 기능이 없어 이번 프로토타입 단계에서는 숨겨둡니다. -->
+      <header id="app-header">
+        <h1 id="app-title">우리 반 마을</h1>
+        <nav id="app-nav">
+          <button id="btn-my-room" type="button">내 방 꾸미기</button>
+          <button id="btn-explore" type="button">마을 탐험하기</button>
+        </nav>
+      </header>
+
+      <!-- 메인 게임 화면: 마을 월드 렌더링 영역 -->
+      <main id="game-container">
+        <div id="game-stage">
+          <!-- #world: 방/통로/광장/표지판을 담는 거대한 월드. 카메라 이동은 이 요소의 transform으로 처리합니다. -->
+          <div id="world"></div>
+
+          <!-- 플레이어 슬라임: 항상 game-stage 기준으로 좌표를 계산해 배치합니다. -->
+          <div id="player">
+            <div class="slime">
+              <span class="slime-eye slime-eye-left"></span>
+              <span class="slime-eye slime-eye-right"></span>
+            </div>
+            <div class="slime-shadow"></div>
           </div>
-          <div class="slime-shadow"></div>
+
+          <!-- HUD: 왼쪽 위 고정 패널. 이름/위치는 로그인한 계정에 맞춰 js/main.js가 채워 넣습니다. -->
+          <div id="hud">
+            <div id="hud-name">👤 -</div>
+            <div id="hud-location">📍 -</div>
+            <button type="button" id="btn-logout">로그아웃</button>
+          </div>
+
+          <!-- 모바일/태블릿용 화면 이동키: 왼쪽 아래, 반투명 십자 방향키 -->
+          <div id="dpad">
+            <button type="button" class="dpad-btn dpad-up" data-direction="up">▲</button>
+            <button type="button" class="dpad-btn dpad-left" data-direction="left">◀</button>
+            <button type="button" class="dpad-btn dpad-right" data-direction="right">▶</button>
+            <button type="button" class="dpad-btn dpad-down" data-direction="down">▼</button>
+          </div>
         </div>
+      </main>
 
-        <!-- HUD: 왼쪽 위 고정 패널 -->
-        <div id="hud">
-          <div id="hud-name">👤 준범</div>
-          <div id="hud-location">📍 준범의 공간</div>
+      <!-- 사이드 패널: 아이템 선택, 인벤토리 등 (추후 구현). 이번 단계에서는 사용하지 않아 숨겨둡니다. -->
+      <aside id="side-panel">
+        <div id="item-palette">
+          <!-- 아이템 목록이 들어갈 자리 -->
         </div>
+      </aside>
 
-        <!-- 모바일/태블릿용 화면 이동키: 왼쪽 아래, 반투명 십자 방향키 -->
-        <div id="dpad">
-          <button type="button" class="dpad-btn dpad-up" data-direction="up">▲</button>
-          <button type="button" class="dpad-btn dpad-left" data-direction="left">◀</button>
-          <button type="button" class="dpad-btn dpad-right" data-direction="right">▶</button>
-          <button type="button" class="dpad-btn dpad-down" data-direction="down">▼</button>
-        </div>
-      </div>
-    </main>
-
-    <!-- 사이드 패널: 아이템 선택, 인벤토리 등 (추후 구현). 이번 단계에서는 사용하지 않아 숨겨둡니다. -->
-    <aside id="side-panel">
-      <div id="item-palette">
-        <!-- 아이템 목록이 들어갈 자리 -->
-      </div>
-    </aside>
-
-    <footer id="app-footer">
-      <p>&copy; 2026 우리 반 마을 꾸미기</p>
-    </footer>
+      <footer id="app-footer">
+        <p>&copy; 2026 우리 반 마을 꾸미기</p>
+      </footer>
+    </div>
   </div>
 
+  <script src="js/accounts.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

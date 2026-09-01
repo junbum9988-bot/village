@@ -41,9 +41,21 @@ body {
 }
 
 #app {
+  position: relative;
+  min-height: 100vh;
+}
+
+/* 게임 화면(헤더/본문/푸터)은 로그인 성공 전까지 숨겨둔다.
+   [hidden] 기본 규칙(display:none)이 아래 #game-screen{display:flex}에 밀리지 않도록
+   같은 id 특이도로 명시적으로 다시 선언한다. */
+#game-screen {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+}
+
+#game-screen[hidden] {
+  display: none;
 }
 
 /* ---------- 헤더 ---------- */
@@ -347,6 +359,23 @@ main#game-container {
   color: var(--color-muted);
 }
 
+#btn-logout {
+  /* #hud 전체는 pointer-events:none(게임 화면을 가리지 않도록)이라, 버튼만 다시 켜준다. */
+  pointer-events: auto;
+  margin-top: 6px;
+  padding: 3px 10px;
+  border: none;
+  border-radius: 999px;
+  background-color: rgba(43, 43, 43, 0.12);
+  color: var(--color-text);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+#btn-logout:hover {
+  background-color: rgba(43, 43, 43, 0.2);
+}
+
 /* ---------- 화면 이동키 (모바일/태블릿/전자칠판용 십자 방향키) ---------- */
 #dpad {
   position: absolute;
@@ -405,4 +434,91 @@ main#game-container {
 
 .dpad-down {
   grid-row: 3;
+}
+
+/* =========================================================
+   로그인 화면
+   ========================================================= */
+
+#login-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-md);
+  background: linear-gradient(160deg, #eef6f0 0%, #dff2e3 100%);
+}
+
+#login-screen[hidden] {
+  display: none;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg);
+  background-color: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.login-title {
+  margin: 0;
+  font-size: 1.3rem;
+  text-align: center;
+}
+
+.login-subtitle {
+  margin: 0 0 var(--spacing-sm);
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  text-align: center;
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--color-text);
+}
+
+.login-field input {
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 1rem;
+  text-transform: uppercase;
+}
+
+.login-field input:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.login-error {
+  min-height: 1.1em;
+  margin: 0;
+  font-size: 0.8rem;
+  color: #d1453b;
+}
+
+#login-submit {
+  padding: 10px 14px;
+  border: none;
+  border-radius: var(--radius);
+  background-color: var(--color-primary);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#login-submit:hover {
+  background-color: var(--color-primary-dark);
 }
