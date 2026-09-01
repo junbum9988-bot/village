@@ -140,7 +140,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // 눌려있는 방향을 "up" / "down" / "left" / "right" 로 정규화해서 관리한다.
   // e.code(물리적 키 위치)를 우선으로 보고, 없는 경우에는 e.key로도 인식한다.
   // (실제 키보드 입력은 항상 code가 채워지지만, 일부 자동화 도구 등 code가 비는 환경도 있어 보강함)
-  const pressed = new Set();
+  //
+  // 키보드 입력과 화면 이동키(터치) 입력은 반드시 서로 다른 Set에 저장한다.
+  // 하나의 Set을 같이 썼다면, 두 입력이 같은 방향을 동시에 누르고 있다가
+  // 한쪽만 손을 뗐을 때 방향 자체가 지워져서 다른 쪽 입력까지 같이 끊겨버리는 충돌이 생긴다.
+  // (예: 화면 이동키로 오른쪽을 누른 채 키보드 오른쪽 화살표도 눌렀다 떼면, 화면 이동키를
+  //  누르고 있는데도 멈춰버리는 문제) 최종 이동 방향은 getInputVector()에서 두 Set을 합쳐 계산한다.
+  const keyboardPressed = new Set();
+  const touchPressed = new Set();
 
   const CODE_TO_DIR = {
     ArrowUp: "up",
@@ -171,7 +178,7 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("keydown", (e) => {
     const dir = resolveDirection(e);
     if (dir) {
-      pressed.add(dir);
+      keyboardPressed.add(dir);
       e.preventDefault(); // 방향키로 페이지가 스크롤되는 것 방지
     }
   });
@@ -179,21 +186,23 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("keyup", (e) => {
     const dir = resolveDirection(e);
     if (dir) {
-      pressed.delete(dir);
+      keyboardPressed.delete(dir);
     }
   });
 
   // 창 포커스를 잃으면 눌린 키 상태를 초기화 (키가 눌린 채로 고정되는 버그 방지)
-  window.addEventListener("blur", () => pressed.clear());
+  window.addEventListener("blur", () => keyboardPressed.clear());
 
   function getInputVector() {
     let dx = 0;
     let dy = 0;
 
-    if (pressed.has("left")) dx -= 1;
-    if (pressed.has("right")) dx += 1;
-    if (pressed.has("up")) dy -= 1;
-    if (pressed.has("down")) dy += 1;
+    const isPressed = (dir) => keyboardPressed.has(dir) || touchPressed.has(dir);
+
+    if (isPressed("left")) dx -= 1;
+    if (isPressed("right")) dx += 1;
+    if (isPressed("up")) dy -= 1;
+    if (isPressed("down")) dy += 1;
 
     if (dx !== 0 && dy !== 0) {
       const inv = Math.SQRT1_2; // 대각선 이동 속도 보정
@@ -202,6 +211,53 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     return { dx, dy };
+  }
+
+  // ---------------------------------------------------------
+  // 4-1. 화면 이동키 (모바일 / 태블릿 / 전자칠판용 터치 십자 방향키)
+  // ---------------------------------------------------------
+  // 키보드와는 별도의 touchPressed Set을 사용한다 (충돌 방지 이유는 위 4번 주석 참고).
+  // Pointer Event를 사용해 마우스/터치/펜을 하나의 로직으로 통일하고,
+  // 버튼별로 눌고 있는 pointerId를 추적해 멀티터치 상황(다른 손가락이 다른 버튼을 누르는 경우)에도
+  // 한쪽 손가락을 떼도 다른 손가락이 여전히 누르고 있으면 계속 이동하도록 처리한다.
+  const dpadEl = document.getElementById("dpad");
+
+  if (dpadEl) {
+    // 버튼 위에서 스크롤/확대/컨텍스트 메뉴 등 브라우저 기본 동작이 끼어들지 않도록 차단
+    dpadEl.addEventListener("contextmenu", (e) => e.preventDefault());
+
+    dpadEl.querySelectorAll(".dpad-btn").forEach((btn) => {
+      const direction = btn.dataset.direction;
+      const activePointerIds = new Set();
+
+      const press = (e) => {
+        e.preventDefault();
+        activePointerIds.add(e.pointerId);
+        // 포인터를 캡처해서, 버튼 밖으로 손가락이 살짝 밀려도 손을 뗄 때까지는 계속 눌린 상태로 인식한다.
+        if (btn.setPointerCapture) {
+          try {
+            btn.setPointerCapture(e.pointerId);
+          } catch (err) {
+            /* 일부 환경에서 캡처가 실패해도 이동 자체에는 지장 없음 */
+          }
+        }
+        touchPressed.add(direction);
+        btn.classList.add("active");
+      };
+
+      const release = (e) => {
+        activePointerIds.delete(e.pointerId);
+        // 같은 버튼을 여러 포인터가 누르고 있을 수도 있으니, 모두 뗐을 때만 이동을 멈춘다.
+        if (activePointerIds.size === 0) {
+          touchPressed.delete(direction);
+          btn.classList.remove("active");
+        }
+      };
+
+      btn.addEventListener("pointerdown", press);
+      btn.addEventListener("pointerup", release);
+      btn.addEventListener("pointercancel", release);
+    });
   }
 
   // ---------------------------------------------------------

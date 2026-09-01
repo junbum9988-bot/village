@@ -346,3 +346,63 @@ main#game-container {
 #hud-location {
   color: var(--color-muted);
 }
+
+/* ---------- 화면 이동키 (모바일/태블릿/전자칠판용 십자 방향키) ---------- */
+#dpad {
+  position: absolute;
+  left: var(--spacing-md);
+  bottom: var(--spacing-md);
+  z-index: 10;
+  display: grid;
+  grid-template-columns: repeat(3, 46px);
+  grid-template-rows: repeat(3, 46px);
+  gap: 4px;
+  /* 이 영역에서는 스크롤/핀치줌 등 브라우저 기본 터치 동작을 막아 입력이 씹히지 않게 함 */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.dpad-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  grid-column: 2;
+  border: 1px solid rgba(43, 43, 43, 0.18);
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.45);
+  color: rgba(43, 43, 43, 0.75);
+  font-size: 18px;
+  line-height: 1;
+  padding: 0;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  cursor: pointer;
+}
+
+.dpad-btn:active,
+.dpad-btn.active {
+  background-color: rgba(76, 175, 125, 0.6);
+  border-color: rgba(56, 135, 95, 0.5);
+}
+
+.dpad-up {
+  grid-row: 1;
+}
+
+.dpad-left {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.dpad-right {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.dpad-down {
+  grid-row: 3;
+}
