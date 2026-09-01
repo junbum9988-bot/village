@@ -82,33 +82,44 @@
             <button type="button" class="dpad-btn dpad-down" data-direction="down">▼</button>
           </div>
         </div>
-      </main>
 
-      <!-- 사이드 패널(인벤토리): 꾸미기 모드일 때만 보입니다. -->
-      <aside id="side-panel" hidden>
-        <div id="inventory-header">
-          <h2>아이템 선택</h2>
-          <button type="button" id="btn-decorate-done">꾸미기 완료</button>
-        </div>
+        <!-- 사이드 패널(인벤토리): 꾸미기 모드일 때만 보입니다. #game-stage와 함께 #game-container의
+             flex 자식이라 화면이 넓을 때는 자연스럽게 오른쪽 고정 패널이 되고(남은 공간은 game-stage가
+             차지), 좁은 휴대폰에서는 오른쪽에서 덮는 오버레이로 전환됩니다 (css/style.css 참고). -->
+        <aside id="side-panel" hidden>
+          <div id="inventory-header">
+            <h2>아이템 선택</h2>
+            <button type="button" id="btn-decorate-done">꾸미기 완료</button>
+          </div>
 
-        <!-- 배치된 아이템을 선택했을 때 크기 조절/삭제 버튼이 여기에 나타납니다. -->
-        <div id="selection-panel">
-          <p id="selection-hint">배치된 아이템을 눌러 선택해보세요.</p>
-          <div id="selection-controls" hidden>
-            <span id="selection-name"></span>
-            <div class="selection-buttons">
-              <button type="button" id="btn-item-bigger">크게</button>
-              <button type="button" id="btn-item-smaller">작게</button>
-              <button type="button" id="btn-item-delete">삭제</button>
+          <!-- 배치된 아이템을 선택했을 때 크기/순서 조절·삭제 버튼이 여기에 나타납니다. -->
+          <div id="selection-panel">
+            <p id="selection-hint">배치된 아이템을 눌러 선택해보세요.</p>
+            <div id="selection-controls" hidden>
+              <span id="selection-name"></span>
+              <div class="selection-buttons">
+                <button type="button" id="btn-item-bigger">크게</button>
+                <button type="button" id="btn-item-smaller">작게</button>
+                <button type="button" id="btn-item-forward">앞으로</button>
+                <button type="button" id="btn-item-backward">뒤로</button>
+                <button type="button" id="btn-item-delete">삭제</button>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- 아이템을 누르면 내 공간 중앙 근처에 배치됩니다. -->
-        <div id="item-palette">
-          <!-- 아이템 목록이 여기에 채워집니다 (js/main.js, 최대 20개/페이지 구조) -->
-        </div>
-      </aside>
+          <!-- 아이템을 누르면 내 공간 중앙 근처에 배치됩니다. 4열 그리드, 최대 20개/페이지. -->
+          <div id="item-palette">
+            <!-- 아이템 목록이 여기에 채워집니다 (js/main.js) -->
+          </div>
+
+          <!-- 페이지 이동 -->
+          <div id="inventory-pager">
+            <button type="button" id="btn-page-prev" aria-label="이전 페이지">◀</button>
+            <span id="page-indicator">1 / 1</span>
+            <button type="button" id="btn-page-next" aria-label="다음 페이지">▶</button>
+          </div>
+        </aside>
+      </main>
 
       <footer id="app-footer">
         <p>&copy; 2026 우리 반 마을 꾸미기</p>

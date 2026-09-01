@@ -165,7 +165,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const selectionNameEl = document.getElementById("selection-name");
   const btnItemBiggerEl = document.getElementById("btn-item-bigger");
   const btnItemSmallerEl = document.getElementById("btn-item-smaller");
+  const btnItemForwardEl = document.getElementById("btn-item-forward");
+  const btnItemBackwardEl = document.getElementById("btn-item-backward");
   const btnItemDeleteEl = document.getElementById("btn-item-delete");
+  const btnPagePrevEl = document.getElementById("btn-page-prev");
+  const btnPageNextEl = document.getElementById("btn-page-next");
+  const pageIndicatorEl = document.getElementById("page-indicator");
 
   // ---------------------------------------------------------
   // 4. 플레이어 / 카메라 상태
@@ -597,7 +602,9 @@ document.addEventListener("DOMContentLoaded", () => {
   let activeRoomForDecorate = null; // 꾸미기 모드에 들어갈 때의 "내 방" (모드가 켜져 있는 동안 고정)
   let selectedItem = null;
   let nextInstanceId = 1;
-  /** @type {{instanceId:number, itemId:string, ownerCode:string, x:number, y:number, scale:number, el:HTMLElement}[]} */
+  let nextZ = 1; // 다음에 놓일 아이템의 쌓임 순서 (앞으로/뒤로 버튼이 이 값을 기준으로 움직인다)
+  let currentPage = 0; // 인벤토리 현재 페이지 (0부터 시작)
+  /** @type {{instanceId:number, itemId:string, ownerCode:string, x:number, y:number, scale:number, z:number, el:HTMLElement}[]} */
   const placedItems = [];
 
   function clamp(value, min, max) {
@@ -616,7 +623,7 @@ document.addEventListener("DOMContentLoaded", () => {
     instance.y = clamp(instance.y, room.y + h / 2, room.y + room.h - h / 2);
   }
 
-  // instance의 x/y/scale 값을 실제 화면(#world 안 요소)에 반영한다.
+  // instance의 x/y/scale/z 값을 실제 화면(#world 안 요소)에 반영한다.
   function renderPlacedItem(instance) {
     const catalogEntry = ITEM_CATALOG_BY_ID[instance.itemId];
     const { w, h } = getItemSize(catalogEntry, instance.scale);
@@ -624,6 +631,7 @@ document.addEventListener("DOMContentLoaded", () => {
     instance.el.style.top = `${instance.y}px`;
     instance.el.style.width = `${w}px`;
     instance.el.style.height = `${h}px`;
+    instance.el.style.zIndex = String(instance.z);
   }
 
   function selectItem(instance) {
@@ -719,6 +727,7 @@ document.addEventListener("DOMContentLoaded", () => {
       x: room.x + room.w / 2 + jitterX,
       y: room.y + room.h / 2 + jitterY,
       scale: 1,
+      z: nextZ++, // 새로 놓은 아이템이 항상 맨 앞에 오도록
     };
     clampItemToRoom(instance, room);
 
@@ -732,11 +741,16 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 인벤토리 목록을 그린다. ITEMS_PER_PAGE(20)씩 잘라서 그리는 구조라, 아이템이 늘어나도
-  // 이 함수 자체는 바꿀 필요 없이 페이지 번호만 넘기면 되도록 만들어뒀다 (지금은 1페이지 고정).
-  function renderInventory(page = 0) {
+  // 이 함수 자체는 바꿀 필요 없이 페이지 번호만 넘기면 된다. 지금은 테스트 아이템이
+  // 5개뿐이라 항상 1페이지지만, ◀ 1 / 1 ▶ 형태로 페이지 이동 UI 자체는 항상 보여준다.
+  const totalPages = Math.max(1, Math.ceil(ITEM_CATALOG.length / ITEMS_PER_PAGE));
+
+  function renderInventory() {
+    currentPage = clamp(currentPage, 0, totalPages - 1);
+
     itemPaletteEl.innerHTML = "";
 
-    const start = page * ITEMS_PER_PAGE;
+    const start = currentPage * ITEMS_PER_PAGE;
     const pageItems = ITEM_CATALOG.slice(start, start + ITEMS_PER_PAGE);
 
     pageItems.forEach((catalogEntry) => {
@@ -757,7 +771,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
       itemPaletteEl.appendChild(btn);
     });
+
+    pageIndicatorEl.textContent = `${currentPage + 1} / ${totalPages}`;
+    btnPagePrevEl.disabled = currentPage === 0;
+    btnPageNextEl.disabled = currentPage >= totalPages - 1;
   }
+
+  btnPagePrevEl.addEventListener("click", () => {
+    if (currentPage > 0) {
+      currentPage -= 1;
+      renderInventory();
+    }
+  });
+
+  btnPageNextEl.addEventListener("click", () => {
+    if (currentPage < totalPages - 1) {
+      currentPage += 1;
+      renderInventory();
+    }
+  });
 
   function enterDecorateMode() {
     if (isMovementLocked() || !currentAccount) return;
@@ -774,6 +806,7 @@ document.addEventListener("DOMContentLoaded", () => {
     stopLoop();
 
     deselectItem();
+    currentPage = 0;
     renderInventory();
     sidePanelEl.hidden = false;
 
@@ -809,6 +842,22 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!selectedItem) return;
     selectedItem.scale = clamp(selectedItem.scale - ITEM_SCALE_STEP, ITEM_MIN_SCALE, ITEM_MAX_SCALE);
     clampItemToRoom(selectedItem, activeRoomForDecorate);
+    renderPlacedItem(selectedItem);
+  });
+
+  // "앞으로"/"뒤로"는 겹쳐 놓인 아이템들 중 맨 앞/맨 뒤로 보낸다 (한 칸씩 순서를 바꾸는 대신,
+  // 전체 아이템 중 가장 큰/작은 z값보다 하나 더 크게/작게 만드는 방식이라 항상 확실하게 맨 앞/맨 뒤가 된다).
+  btnItemForwardEl.addEventListener("click", () => {
+    if (!selectedItem) return;
+    nextZ = Math.max(nextZ, ...placedItems.map((item) => item.z)) + 1;
+    selectedItem.z = nextZ++;
+    renderPlacedItem(selectedItem);
+  });
+
+  btnItemBackwardEl.addEventListener("click", () => {
+    if (!selectedItem) return;
+    const minZ = Math.min(...placedItems.map((item) => item.z));
+    selectedItem.z = minZ - 1;
     renderPlacedItem(selectedItem);
   });
 

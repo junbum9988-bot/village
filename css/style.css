@@ -14,7 +14,7 @@
 
   --header-height: 56px;
   --footer-height: 40px;
-  --side-panel-width: 240px;
+  --side-panel-width: 340px; /* 꾸미기 인벤토리 패널 너비. 640px 이하 화면에서는 오버레이로 전환됨(아래 미디어쿼리 참고) */
 
   --radius: 12px;
   --spacing-sm: 8px;
@@ -99,6 +99,8 @@ main#game-container {
   flex: 1;
   display: flex;
   min-height: 0;
+  /* 좁은 화면에서 #side-panel을 오버레이(position:absolute)로 띄울 때 기준이 되는 위치 컨테이너 */
+  position: relative;
 }
 
 #game-stage {
@@ -108,17 +110,22 @@ main#game-container {
   background-color: #dff2e3;
 }
 
+/* ---------- 꾸미기 인벤토리 패널 ----------
+   기본(PC/태블릿, 640px 초과): #game-container의 평범한 flex 자식으로 오른쪽에 고정폭으로 자리잡는다.
+   -> #game-stage가 flex:1이라 자동으로 "남은 왼쪽 영역"을 쓰게 되고, 세로로 밀리거나 줄어들 일이 없다.
+   좁은 화면(640px 이하): 아래 미디어쿼리에서 position:absolute로 바뀌어 flex 흐름에서 빠지고,
+   오른쪽에서 게임 화면 위로 오버레이된다 (#game-stage 크기에는 영향을 주지 않음). */
 #side-panel {
   /* 꾸미기 모드일 때만 js/main.js가 hidden 속성을 풀어서 보여줍니다. */
+  /* height는 지정하지 않는다 - #game-container(row flex, align-items:stretch 기본값)의 자식으로서
+     game-stage와 같은 높이로 자동으로 늘어난다. (좁은 화면 오버레이 모드에서는 top/bottom으로 높이가 정해짐) */
   width: var(--side-panel-width);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
   background-color: var(--color-surface);
   border-left: 1px solid var(--color-border);
-  padding: var(--spacing-md);
-  overflow-y: auto;
+  overflow: hidden; /* 패널 자체는 스크롤하지 않고, 안쪽 #item-palette만 스크롤한다 */
 }
 
 /* #side-panel{display:flex}가 id 특이도라 [hidden]{display:none}보다 우선 적용돼버리는 것을 막는다.
@@ -128,10 +135,13 @@ main#game-container {
 }
 
 #inventory-header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
 }
 
 #inventory-header h2 {
@@ -155,10 +165,53 @@ main#game-container {
   background-color: var(--color-primary-dark);
 }
 
+/* 아이템이 늘어나도 패널 크기 자체는 그대로 유지되고, 이 영역만 세로 스크롤된다. */
 #item-palette {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  align-content: start;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+}
+
+#inventory-pager {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+}
+
+#inventory-pager button {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  background-color: rgba(43, 43, 43, 0.1);
+  color: var(--color-text);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+#inventory-pager button:hover:not(:disabled) {
+  background-color: rgba(43, 43, 43, 0.2);
+}
+
+#inventory-pager button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+#page-indicator {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  min-width: 3.5em;
+  text-align: center;
 }
 
 /* ---------- 푸터 ---------- */
@@ -177,17 +230,19 @@ main#game-container {
    반응형 대응
    ========================================================= */
 
-/* 태블릿 이하: 사이드 패널을 하단으로 이동 */
-@media (max-width: 1024px) {
-  main#game-container {
-    flex-direction: column;
-  }
-
+/* 좁은 휴대폰(640px 이하): 꾸미기 패널을 오른쪽 고정폭 대신 오버레이로 띄운다.
+   position:absolute로 바뀌면 flex 흐름에서 빠지므로 #game-stage는 그대로 전체 폭을 쓰고,
+   패널이 그 위에 겹쳐 보인다. 왼쪽에 있는 HUD/이동키는 가리지 않는다(패널이 오른쪽에만 걸침). */
+@media (max-width: 640px) {
   #side-panel {
-    width: 100%;
-    max-height: 30vh;
-    border-left: none;
-    border-top: 1px solid var(--color-border);
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    width: min(var(--side-panel-width), 88vw);
+    z-index: 20;
+    box-shadow: -6px 0 16px rgba(0, 0, 0, 0.18);
   }
 }
 
@@ -200,10 +255,6 @@ main#game-container {
   #app-nav button {
     padding: 6px 10px;
     font-size: 0.8rem;
-  }
-
-  #side-panel {
-    max-height: 25vh;
   }
 }
 
@@ -670,8 +721,9 @@ main#game-container {
 
 /* ---------- 선택한 아이템 조절 패널 ---------- */
 #selection-panel {
-  padding-top: var(--spacing-sm);
-  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
 }
 
 #selection-hint {
