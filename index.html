@@ -9,6 +9,7 @@
 <body>
   <div id="app">
     <!-- 상단 헤더: 로고, 현재 학생 이름, 메뉴 버튼 등 -->
+    <!-- 메뉴(내 방 꾸미기 / 마을 탐험하기)는 아직 기능이 없어 이번 프로토타입 단계에서는 숨겨둡니다. -->
     <header id="app-header">
       <h1 id="app-title">우리 반 마을</h1>
       <nav id="app-nav">
@@ -17,14 +18,30 @@
       </nav>
     </header>
 
-    <!-- 메인 게임 화면: 마을/방 렌더링 영역 -->
+    <!-- 메인 게임 화면: 마을 월드 렌더링 영역 -->
     <main id="game-container">
       <div id="game-stage">
-        <!-- 이후 이 안에 마을 맵, 학생 방, 캐릭터, 아이템 등을 렌더링합니다. -->
+        <!-- #world: 방/통로/광장/표지판을 담는 거대한 월드. 카메라 이동은 이 요소의 transform으로 처리합니다. -->
+        <div id="world"></div>
+
+        <!-- 플레이어 슬라임: 항상 game-stage 기준으로 좌표를 계산해 배치합니다. -->
+        <div id="player">
+          <div class="slime">
+            <span class="slime-eye slime-eye-left"></span>
+            <span class="slime-eye slime-eye-right"></span>
+          </div>
+          <div class="slime-shadow"></div>
+        </div>
+
+        <!-- HUD: 왼쪽 위 고정 패널 -->
+        <div id="hud">
+          <div id="hud-name">👤 준범</div>
+          <div id="hud-location">📍 준범의 공간</div>
+        </div>
       </div>
     </main>
 
-    <!-- 하단/사이드 패널: 아이템 선택, 인벤토리 등 (추후 구현) -->
+    <!-- 사이드 패널: 아이템 선택, 인벤토리 등 (추후 구현). 이번 단계에서는 사용하지 않아 숨겨둡니다. -->
     <aside id="side-panel">
       <div id="item-palette">
         <!-- 아이템 목록이 들어갈 자리 -->
