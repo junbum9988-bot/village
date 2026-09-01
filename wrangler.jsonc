@@ -1,0 +1,11 @@
+{
+  // Cloudflare Workers - Static Assets 배포 설정
+  // 순수 정적 사이트(HTML/CSS/JS)이므로 별도의 Worker 서버 코드는 사용하지 않습니다.
+  // 빌드 과정 없이 프로젝트 루트를 그대로 배포합니다.
+  // 배포 명령: npx wrangler deploy
+  "name": "village",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./"
+  }
+}
