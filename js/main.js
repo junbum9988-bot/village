@@ -15,8 +15,9 @@
  *   - 전체 마을 보기    : 카메라를 줌아웃해 4x5 마을 전체를 보여주는 관람 전용 모드 (이동/조작 비활성)
  *   - 꾸미기 모드       : 자기 공간에서만 켤 수 있는 관람 전용 아님 모드. 이동은 멈추고 인벤토리에서
  *                        아이템을 골라 배치/이동/크기조절/삭제할 수 있다 (브라우저 메모리에만 저장).
- *                        관리자 계정(T로 시작하는 접속 코드)은 공통 아이템에 더해
- *                        assets/admin/items/items.json에서 불러온 전용 아이템도 함께 보인다.
+ *                        관리자(T00)와 학생(S01~S18) 계정은 각자 공통 아이템에 더해
+ *                        assets/admin/items/items.json, assets/students/<번호>/items/items.json
+ *                        에서 불러온 전용 아이템도 함께 보인다 (계정별 경로는 getPersonalItemsPath).
  *   - 로그인 흐름       : 접속 코드+PIN 검사, 성공 시 해당 학생 공간에서 게임 시작, 로그아웃 시 로그인 화면으로 복귀
  */
 
@@ -53,8 +54,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // w/h는 scale=1일 때 기본 표시 크기(px). thumb은 인벤토리 썸네일이자 배치된 아이템의 그림으로도 그대로 쓴다.
   //
   // BASE_ITEM_CATALOG: 모든 계정이 공통으로 쓰는 테스트 아이템 (1차 프로토타입용). 아직 삭제하지 않고 유지한다.
-  // 계정별 전용 아이템(예: 관리자용)은 여기에 하드코딩하지 않고, 계정별 JSON 카탈로그를 fetch로 불러와
-  // ITEM_CATALOG_BY_ID / activeItemCatalog에 합쳐 넣는 방식으로 확장한다 (7-2절 loadAdminItemCatalog 참고).
+  // 계정별 전용 아이템(관리자/학생)은 여기에 하드코딩하지 않고, 계정별 JSON 카탈로그를 fetch로 불러와
+  // ITEM_CATALOG_BY_ID / activeItemCatalog에 합쳐 넣는 방식으로 확장한다 (7-2-0절 loadPersonalItemCatalog 참고).
   const BASE_ITEM_CATALOG = [
     { id: "tree", name: "나무", thumb: "assets/common/items/tree.svg", w: 64, h: 64 },
     { id: "flower", name: "꽃", thumb: "assets/common/items/flower.svg", w: 48, h: 48 },
@@ -615,17 +616,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const placedItems = [];
 
   // ---------------------------------------------------------
-  // 7-2-0. 계정별 아이템 카탈로그 (관리자 전용 items.json 로드)
+  // 7-2-0. 계정별 아이템 카탈로그 (관리자/학생 전용 items.json 로드)
   // ---------------------------------------------------------
-  // 지금 인벤토리 화면에 보여줄 아이템 목록. 평소엔 공통 아이템뿐이지만, 관리자 계정으로 꾸미기
-  // 모드에 들어가면 assets/admin/items/items.json에서 불러온 아이템이 여기 합쳐진다.
+  // 지금 인벤토리 화면에 보여줄 아이템 목록. 평소엔 공통 아이템뿐이지만, 관리자/학생 계정으로
+  // 꾸미기 모드에 들어가면 각자 전용 items.json에서 불러온 아이템이 여기 합쳐진다.
   let activeItemCatalog = BASE_ITEM_CATALOG;
   let totalPages = 1; // renderInventory()가 activeItemCatalog 기준으로 매번 다시 계산해 넣는다.
-
-  // 관리자 전용 아이템 캐시. 세션(로그인 유지) 동안 한 번만 불러오면 되므로 Promise를 캐싱해서
-  // 꾸미기 모드를 여러 번 여닫아도 fetch가 중복으로 일어나지 않게 한다.
-  let adminItemCatalog = [];
-  let adminItemsLoadPromise = null;
 
   // 지금은 접속 코드가 "T"로 시작하면(교사/관리자용, 현재는 T00 하나뿐) 관리자로 취급한다.
   // accounts.js에 관리자가 늘어나도 코드 접두사 규칙만 지키면 이 함수를 바꿀 필요가 없다.
@@ -633,17 +629,62 @@ document.addEventListener("DOMContentLoaded", () => {
     return !!account && String(account.code || "").toUpperCase().startsWith("T");
   }
 
-  // assets/admin/items/items.json 안 아이템에 지정하지 않은 경우 쓸 기본 표시 크기(px).
-  const DEFAULT_ADMIN_ITEM_SIZE = 96;
+  // 계정의 전용 items.json 경로를 규칙으로 계산한다. 학생 코드는 S01~S18을 하드코딩하지 않고,
+  // 접속 코드에서 숫자 부분만 뽑아 assets/students/<두 자리 번호>/items/items.json 경로를
+  // 그대로 만들어낸다 (S1, S01 등 자릿수가 달라도 항상 두 자리로 맞춘다).
+  // 관리자/학생이 아니거나 코드 형식이 안 맞으면 전용 카탈로그가 없다는 뜻으로 null을 반환한다.
+  function getPersonalItemsPath(account) {
+    if (!account) return null;
 
-  // assets/admin/items/items.json을 fetch로 읽어와 기존 카탈로그 형식(id/name/thumb/w/h)에 맞게
+    if (isAdminAccount(account)) {
+      return "assets/admin/items/items.json";
+    }
+
+    const code = String(account.code || "").toUpperCase();
+    const studentMatch = code.match(/^S(\d+)$/);
+    if (studentMatch) {
+      const studentNumber = studentMatch[1].padStart(2, "0");
+      return `assets/students/${studentNumber}/items/items.json`;
+    }
+
+    return null;
+  }
+
+  // items.json 안 아이템에 크기(w/h)를 지정하지 않은 경우 쓸 기본 표시 크기(px).
+  const DEFAULT_PERSONAL_ITEM_SIZE = 96;
+
+  // 계정 코드별 전용 아이템 캐시. { items, promise } 형태로 저장해서, 같은 로그인 세션에서
+  // 같은 계정으로 꾸미기 모드를 여러 번 여닫아도 fetch가 중복으로 일어나지 않게 하고
+  // (promise 캐싱), fetch가 끝나기 전에도 이전에 불러온 값을 즉시 보여줄 수 있게 한다(items 캐싱).
+  // Map을 계정 코드로 구분해두기 때문에 관리자든 학생이든, 로그아웃 후 다른 계정으로 들어와도
+  // 서로의 캐시가 섞이지 않는다.
+  const personalItemsCache = new Map();
+
+  // 지금까지 캐시된(=이미 로드가 끝난) 전용 아이템을 즉시 돌려준다. 아직 한 번도 불러온 적이
+  // 없거나 이 계정에 전용 카탈로그 자체가 없으면 빈 배열을 반환한다.
+  function getCachedPersonalItems(account) {
+    if (!account) return [];
+    const cached = personalItemsCache.get(account.code);
+    return cached ? cached.items : [];
+  }
+
+  // 계정의 전용 items.json을 fetch로 읽어와 기존 카탈로그 형식(id/name/thumb/w/h)에 맞게
   // 옮겨 담는다. items.json 쪽 필드명(image, animated)은 그대로 두고 thumb = image로 매핑한다.
   // 불러온 아이템은 ITEM_CATALOG_BY_ID에도 합쳐 넣어야, 이미 배치된 아이템을 다시 그리거나
   // (크기 조절, 앞/뒤 순서 변경 등) 선택할 때 항상 같은 맵 하나로 조회할 수 있다.
-  function loadAdminItemCatalog() {
-    if (adminItemsLoadPromise) return adminItemsLoadPromise; // 이미 불러왔거나 불러오는 중이면 재사용
+  //
+  // 파일이 없거나(아직 학생용 items.json을 안 만든 경우), 비어 있거나, JSON 형식이 잘못됐어도
+  // 예외를 밖으로 던지지 않고 빈 배열로 조용히 폴백한다 - 게임 자체는 공통 아이템만으로 계속 쓸 수 있다.
+  function loadPersonalItemCatalog(account) {
+    const path = getPersonalItemsPath(account);
+    if (!path) return Promise.resolve([]); // 전용 카탈로그가 없는 계정(형식이 안 맞는 코드 등)
 
-    adminItemsLoadPromise = fetch("assets/admin/items/items.json")
+    const existing = personalItemsCache.get(account.code);
+    if (existing) return existing.promise; // 이미 불러왔거나 불러오는 중이면 재사용
+
+    const cacheEntry = { items: [], promise: null };
+
+    cacheEntry.promise = fetch(path)
       .then((res) => {
         if (!res.ok) throw new Error(`items.json 응답 오류 (HTTP ${res.status})`);
         return res.json();
@@ -654,26 +695,27 @@ document.addEventListener("DOMContentLoaded", () => {
           name: raw.name,
           thumb: raw.image,
           animated: Boolean(raw.animated),
-          w: raw.w || DEFAULT_ADMIN_ITEM_SIZE,
-          h: raw.h || DEFAULT_ADMIN_ITEM_SIZE,
+          w: raw.w || DEFAULT_PERSONAL_ITEM_SIZE,
+          h: raw.h || DEFAULT_PERSONAL_ITEM_SIZE,
         }));
 
         mapped.forEach((item) => {
           ITEM_CATALOG_BY_ID[item.id] = item;
         });
 
-        adminItemCatalog = mapped;
+        cacheEntry.items = mapped;
         return mapped;
       })
       .catch((err) => {
-        // 정적 서버 없이 index.html을 file://로 직접 열었거나, items.json이 없거나 형식이
-        // 잘못됐을 때도 게임 자체는 계속 쓸 수 있어야 하므로 공통 아이템만으로 조용히 폴백한다.
-        console.error("관리자 아이템 목록(assets/admin/items/items.json)을 불러오지 못했습니다:", err);
-        adminItemCatalog = [];
-        return adminItemCatalog;
+        // 정적 서버 없이 index.html을 file://로 직접 열었거나, 아직 이 계정의 items.json이
+        // 없거나 형식이 잘못됐을 때도 게임 자체는 계속 쓸 수 있어야 하므로 조용히 폴백한다.
+        console.error(`전용 아이템 목록(${path})을 불러오지 못했습니다:`, err);
+        cacheEntry.items = [];
+        return cacheEntry.items;
       });
 
-    return adminItemsLoadPromise;
+    personalItemsCache.set(account.code, cacheEntry);
+    return cacheEntry.promise;
   }
 
   function clamp(value, min, max) {
@@ -876,18 +918,23 @@ document.addEventListener("DOMContentLoaded", () => {
     deselectItem();
     currentPage = 0;
 
-    // 관리자 계정은 공통 아이템에 더해 assets/admin/items/items.json 아이템도 함께 보여준다.
-    // 학생 계정(01~18)은 지금까지와 동일하게 공통 아이템만 보인다 (이번 작업에서는 손대지 않음).
-    if (isAdminAccount(currentAccount)) {
-      activeItemCatalog = BASE_ITEM_CATALOG.concat(adminItemCatalog); // 캐시가 있으면 즉시 반영
+    // 관리자/학생 계정은 공통 아이템에 더해 각자 전용 items.json 아이템도 함께 보여준다.
+    // 전용 카탈로그가 없는 계정(코드 형식이 안 맞는 경우 등)은 getPersonalItemsPath가
+    // null을 반환하므로 자연히 공통 아이템만 보이는 아래 기본 경로로 빠진다.
+    const personalItemsPath = getPersonalItemsPath(currentAccount);
+
+    if (personalItemsPath) {
+      const accountAtRequest = currentAccount; // 응답이 오기 전에 로그아웃/다른 계정으로 바뀌었는지 확인용
+
+      activeItemCatalog = BASE_ITEM_CATALOG.concat(getCachedPersonalItems(currentAccount)); // 캐시가 있으면 즉시 반영
       renderInventory();
       sidePanelEl.hidden = false;
       stageEl.classList.add("decorate-active");
       refreshHudControls();
 
-      loadAdminItemCatalog().then((items) => {
+      loadPersonalItemCatalog(currentAccount).then((items) => {
         // 로딩되는 동안 꾸미기 모드를 빠져나갔거나 다른 계정으로 바뀌었으면 화면을 건드리지 않는다.
-        if (!decorateMode || !isAdminAccount(currentAccount)) return;
+        if (!decorateMode || currentAccount !== accountAtRequest) return;
         activeItemCatalog = BASE_ITEM_CATALOG.concat(items);
         renderInventory();
       });
