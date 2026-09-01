@@ -6,7 +6,7 @@
  * 구경하거나, 자기 공간에서는 아이템을 놓고 꾸밀 수 있다.
  * 계정 데이터는 js/accounts.js 에서만 관리한다 (이 파일은 로그인 "흐름"만 다룬다).
  *
- * 다루지 않는 것: Supabase 연동, 실제 인증/DB, 꾸미기 결과 저장(새로고침하면 사라짐).
+ * 다루지 않는 것: Supabase Auth/RLS, 캐릭터 위치 동기화, 이미지 Storage 업로드.
  *
  * 구성
  *   - 맵 데이터 생성   : 방/통로/광장 데이터를 만들고 #world에 DOM으로 렌더링 (로그인과 무관, 한 번만 수행)
@@ -14,10 +14,15 @@
  *   - 게임 루프        : 로그인에 성공했을 때만 실행 (update → 이동/카메라, render → 화면 반영)
  *   - 전체 마을 보기    : 카메라를 줌아웃해 4x5 마을 전체를 보여주는 관람 전용 모드 (이동/조작 비활성)
  *   - 꾸미기 모드       : 자기 공간에서만 켤 수 있는 관람 전용 아님 모드. 이동은 멈추고 인벤토리에서
- *                        아이템을 골라 배치/이동/크기조절/삭제할 수 있다 (브라우저 메모리에만 저장).
+ *                        아이템을 골라 배치/이동/크기조절/삭제할 수 있다.
  *                        관리자(T00)와 학생(S01~S18) 계정은 각자 공통 아이템에 더해
  *                        assets/admin/items/items.json, assets/students/<번호>/items/items.json
  *                        에서 불러온 전용 아이템도 함께 보인다 (계정별 경로는 getPersonalItemsPath).
+ *   - Supabase 연동    : 배치된 아이템(placedItems)을 Supabase의 placed_items 테이블에 저장하고,
+ *                        페이지를 열면 전체를 한 번 불러와 렌더링한 뒤 Realtime으로 다른 접속자의
+ *                        변경사항을 구독한다 (7-3절). 드래그 중간값/캐릭터 위치는 절대 보내지 않고,
+ *                        "손을 놓는 순간"처럼 결과가 확정되는 시점에만 1회 INSERT/UPDATE/DELETE한다.
+ *                        Supabase 연결이 안 되거나 요청이 실패해도 로컬 조작 자체는 계속 동작한다.
  *   - 로그인 흐름       : 접속 코드+PIN 검사, 성공 시 해당 학생 공간에서 게임 시작, 로그아웃 시 로그인 화면으로 복귀
  */
 
@@ -595,13 +600,19 @@ document.addEventListener("DOMContentLoaded", () => {
   // ---------------------------------------------------------
   // 7-2. 꾸미기 모드 (1차 프로토타입)
   // ---------------------------------------------------------
-  // 배치한 아이템은 이 배열(placedItems)에만 존재하는 "브라우저 메모리" 상태다.
-  // Supabase를 연결하기 전까지는 새로고침하면 전부 사라진다 (요구사항대로).
+  // 배치한 아이템은 이 배열(placedItems)에 있는 동안 화면에 그려진다. 최초 목록은 페이지를 열 때
+  // Supabase에서 한 번 불러와 채우고(7-3절 initPlacedItemsFromSupabase), 이후로는 내가 직접
+  // 놓거나/옮기거나/지운 것과, 다른 접속자가 Realtime으로 알려준 변경이 계속 반영된다.
   //
-  // 확장 대비: 아이템마다 ownerCode(배치한 학생의 접속 코드)를 붙여두고, 클릭/드래그 핸들러에서
-  // "지금 로그인한 사람 == ownerCode"인지 매번 확인한다. 지금은 꾸미기 모드 자체가 "내 방일 때만"
-  // 켜지는 구조라 항상 참이지만, 나중에 다른 학생 공간의 아이템까지 화면에 그리게 되더라도
-  // 이 체크 하나로 "남의 아이템은 못 만짐"이 그대로 유지된다.
+  // 아이템마다 ownerCode(배치한 학생의 접속 코드)를 붙여두고, 클릭/드래그 핸들러에서 "지금
+  // 로그인한 사람 == ownerCode"인지 매번 확인한다. 다른 학생 공간의 아이템도 화면에는 항상 같이
+  // 그려지지만(누구나 마을을 돌아다니며 구경할 수 있어야 하므로), 이 체크 하나로 "남의 아이템은
+  // 못 만짐"이 유지된다.
+  //
+  // instanceId는 세션 내 DOM 식별(el.dataset.instanceId)에만 쓰는 임시 번호이고, dbId가
+  // Supabase placed_items.id(uuid)와 실제로 연결되는 값이다. dbId는 로컬에서 막 놓아서 아직
+  // INSERT 응답을 못 받은 아이템일 때만 잠깐 null이고, 그 외에는(초기 로드/INSERT 완료/다른
+  // 접속자가 만든 아이템) 항상 채워져 있다. instanceId를 Supabase PK로 쓰지 않는다.
   const ITEM_MIN_SCALE = 0.5;
   const ITEM_MAX_SCALE = 2;
   const ITEM_SCALE_STEP = 0.15;
@@ -610,9 +621,9 @@ document.addEventListener("DOMContentLoaded", () => {
   let activeRoomForDecorate = null; // 꾸미기 모드에 들어갈 때의 "내 방" (모드가 켜져 있는 동안 고정)
   let selectedItem = null;
   let nextInstanceId = 1;
-  let nextZ = 1; // 다음에 놓일 아이템의 쌓임 순서 (앞으로/뒤로 버튼이 이 값을 기준으로 움직인다)
+  let nextZ = 1; // 다음에 놓일 아이템의 쌓임 순서. Supabase에서 불러온 뒤 그 최댓값+1로 복원된다.
   let currentPage = 0; // 인벤토리 현재 페이지 (0부터 시작)
-  /** @type {{instanceId:number, itemId:string, ownerCode:string, x:number, y:number, scale:number, z:number, el:HTMLElement}[]} */
+  /** @type {{instanceId:number, dbId:(string|null), itemId:string, ownerCode:string, x:number, y:number, scale:number, z:number, el:HTMLElement}[]} */
   const placedItems = [];
 
   // ---------------------------------------------------------
@@ -794,6 +805,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const startWorld = screenToWorld(e.clientX, e.clientY);
       const grabOffsetX = instance.x - startWorld.x;
       const grabOffsetY = instance.y - startWorld.y;
+      let moved = false; // 실제로 드래그했는지 - 그냥 선택만 하려고 눌렀다 뗀 경우엔 DB에 보낼 게 없다
 
       try {
         el.setPointerCapture(e.pointerId);
@@ -802,17 +814,24 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const onMove = (moveEvent) => {
+        moved = true;
         const world = screenToWorld(moveEvent.clientX, moveEvent.clientY);
         instance.x = world.x + grabOffsetX;
         instance.y = world.y + grabOffsetY;
         clampItemToRoom(instance, activeRoomForDecorate);
-        renderPlacedItem(instance);
+        renderPlacedItem(instance); // 드래그 중에는 화면만 갱신하고 DB 요청은 절대 보내지 않는다
       };
 
       const onUp = () => {
         el.removeEventListener("pointermove", onMove);
         el.removeEventListener("pointerup", onUp);
         el.removeEventListener("pointercancel", onUp);
+
+        // 손을 뗀 순간, 실제로 옮겼을 때만 최종 위치 하나로 Supabase UPDATE 1회를 보낸다.
+        if (moved) {
+          const { room_x, room_y } = toRoomRelative(instance, activeRoomForDecorate);
+          updatePlacedItemRemote(instance, { room_x, room_y });
+        }
       };
 
       el.addEventListener("pointermove", onMove);
@@ -833,6 +852,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const instance = {
       instanceId: nextInstanceId++,
+      dbId: null, // Supabase INSERT가 성공하면 여기에 발급된 UUID가 채워진다 (아래 insertPlacedItemRemote)
       itemId: catalogEntry.id,
       ownerCode: currentAccount.code,
       x: room.x + room.w / 2 + jitterX,
@@ -846,9 +866,11 @@ document.addEventListener("DOMContentLoaded", () => {
     instance.el = el;
     worldEl.appendChild(el);
     renderPlacedItem(instance);
-    placedItems.push(instance);
+    placedItems.push(instance); // 로컬 배치는 여기서 이미 끝난다 - DB 왕복을 기다리지 않는다
 
     selectItem(instance); // 방금 놓은 아이템을 바로 선택해서 크기 조절/삭제를 이어서 할 수 있게 한다.
+
+    insertPlacedItemRemote(instance, room); // 실패해도 로컬 배치엔 영향 없음 (fire-and-forget)
   }
 
   // 인벤토리 목록을 그린다. ITEMS_PER_PAGE(20)씩 잘라서 그리는 구조라, 아이템이 늘어나도
@@ -966,11 +988,16 @@ document.addEventListener("DOMContentLoaded", () => {
   btnDecorateEl.addEventListener("click", enterDecorateMode);
   btnDecorateDoneEl.addEventListener("click", exitDecorateMode);
 
+  // 크기 조절 버튼은 클릭할 때마다 "최종 결과"가 바로 확정되므로(드래그처럼 중간 단계가 없음)
+  // 그때그때 Supabase UPDATE를 보낸다 - 계속 눌러도 버튼 클릭 자체가 이미 "확정된 값" 하나하나다.
+  // clampItemToRoom이 커진 아이템을 방 안으로 다시 밀어넣으면서 위치도 같이 바뀔 수 있으므로,
+  // scale과 함께 room_x/room_y도 최신 값으로 맞춰 보낸다.
   btnItemBiggerEl.addEventListener("click", () => {
     if (!selectedItem) return;
     selectedItem.scale = clamp(selectedItem.scale + ITEM_SCALE_STEP, ITEM_MIN_SCALE, ITEM_MAX_SCALE);
     clampItemToRoom(selectedItem, activeRoomForDecorate);
     renderPlacedItem(selectedItem);
+    syncPositionAndScaleRemote(selectedItem);
   });
 
   btnItemSmallerEl.addEventListener("click", () => {
@@ -978,6 +1005,7 @@ document.addEventListener("DOMContentLoaded", () => {
     selectedItem.scale = clamp(selectedItem.scale - ITEM_SCALE_STEP, ITEM_MIN_SCALE, ITEM_MAX_SCALE);
     clampItemToRoom(selectedItem, activeRoomForDecorate);
     renderPlacedItem(selectedItem);
+    syncPositionAndScaleRemote(selectedItem);
   });
 
   // "앞으로"/"뒤로"는 겹쳐 놓인 아이템들 중 맨 앞/맨 뒤로 보낸다 (한 칸씩 순서를 바꾸는 대신,
@@ -987,6 +1015,7 @@ document.addEventListener("DOMContentLoaded", () => {
     nextZ = Math.max(nextZ, ...placedItems.map((item) => item.z)) + 1;
     selectedItem.z = nextZ++;
     renderPlacedItem(selectedItem);
+    updatePlacedItemRemote(selectedItem, { z_order: selectedItem.z });
   });
 
   btnItemBackwardEl.addEventListener("click", () => {
@@ -994,14 +1023,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const minZ = Math.min(...placedItems.map((item) => item.z));
     selectedItem.z = minZ - 1;
     renderPlacedItem(selectedItem);
+    updatePlacedItemRemote(selectedItem, { z_order: selectedItem.z });
   });
 
   btnItemDeleteEl.addEventListener("click", () => {
     if (!selectedItem) return;
-    const index = placedItems.indexOf(selectedItem);
+    const instanceToDelete = selectedItem; // deselectItem()이 selectedItem을 null로 만들기 전에 붙잡아둔다
+    const index = placedItems.indexOf(instanceToDelete);
     if (index !== -1) placedItems.splice(index, 1);
-    selectedItem.el.remove();
+    instanceToDelete.el.remove();
     deselectItem();
+    deletePlacedItemRemote(instanceToDelete);
   });
 
   // 아이템이 아닌 빈 잔디(#game-stage)를 누르면 선택을 해제한다.
@@ -1010,6 +1042,306 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.target.closest(".placed-item")) return; // 아이템 위 클릭은 위 핸들러가 이미 처리
     deselectItem();
   });
+
+  // ---------------------------------------------------------
+  // 7-3. Supabase 연동 (배치된 아이템 영구 저장 + 실시간 동기화)
+  // ---------------------------------------------------------
+  // 다루는 것 : placed_items 테이블 CRUD, 방 상대좌표 변환, Realtime 구독,
+  //            자기 자신이 보낸 변경이 되돌아왔을 때 중복 처리하지 않기.
+  // 다루지 않는 것 : Auth, RLS, 캐릭터 위치 동기화, 드래그 중간값 전송, 이미지 업로드.
+  //
+  // js/supabase-client.js가 만들어 window.SupabaseClientReady(Promise)에 넣어둔 클라이언트를
+  // 쓴다. 그 파일이 CDN 로딩에 실패했거나 아예 로드되지 않았어도 이 섹션의 모든 함수는 조용히
+  // 아무 일도 하지 않고 넘어가도록 만들어서, Supabase 관련 문제가 게임 자체를 막지 않게 한다.
+  const PLACED_ITEMS_TABLE = "placed_items";
+
+  let supabaseClientPromise = null;
+  function getSupabaseClient() {
+    if (!supabaseClientPromise) {
+      // window.SupabaseClientReady 자체가 이미 "실패하면 null로 풀리는" Promise지만(supabase-client.js
+      // 참고), 그 스크립트가 아예 로드되지 않은 경우(예: CSP, 광고 차단기)까지 대비해 한 번 더 감싼다.
+      supabaseClientPromise = Promise.resolve(window.SupabaseClientReady).catch(() => null);
+    }
+    return supabaseClientPromise;
+  }
+
+  // 접속 코드로 그 학생/관리자의 "방"을 찾는다. Supabase 행에는 좌표만 있고 계정 이름이 없으므로,
+  // js/accounts.js가 전역으로 노출하는 ACCOUNTS_BY_CODE로 이름을 알아낸 다음 LAYOUT 기반의
+  // rooms에서 같은 이름의 방을 찾는다 (placePlayerForAccount가 하는 것과 같은 방식).
+  function getRoomForOwnerCode(ownerCode) {
+    const account = ACCOUNTS_BY_CODE[String(ownerCode || "").toUpperCase()];
+    if (!account) return null;
+    return rooms.find((r) => r.name === account.name) || null;
+  }
+
+  // 월드 절대좌표 -> 소유자 방 기준 상대좌표 (DB에 저장할 때). 나중에 방 크기/배치가 바뀌어도
+  // 저장된 좌표가 안전하도록, 절대좌표 대신 항상 이 상대좌표를 저장한다.
+  function toRoomRelative(instance, room) {
+    return { room_x: instance.x - room.x, room_y: instance.y - room.y };
+  }
+
+  // 방 기준 상대좌표 -> 월드 절대좌표 (DB에서 불러와 그릴 때).
+  function fromRoomRelative(room, roomX, roomY) {
+    return { x: room.x + roomX, y: room.y + roomY };
+  }
+
+  // Supabase 행(row) 하나를 로컬 instance 객체로 만든다. 방을 못 찾거나(owner_code가 이상함)
+  // 카탈로그에 없는 item_id(호출하는 쪽에서 미리 불러와야 함)면 null을 돌려주고 건너뛴다 -
+  // 아이템 하나가 이상해도 나머지 렌더링 전체가 죽으면 안 되기 때문이다.
+  function buildInstanceFromRow(row) {
+    const room = getRoomForOwnerCode(row.owner_code);
+    if (!room) {
+      console.error(`배치된 아이템(id=${row.id})의 owner_code(${row.owner_code})에 해당하는 방이 없어 건너뜁니다.`);
+      return null;
+    }
+
+    const catalogEntry = ITEM_CATALOG_BY_ID[row.item_id];
+    if (!catalogEntry) {
+      console.error(`배치된 아이템(id=${row.id})의 item_id(${row.item_id})를 카탈로그에서 찾을 수 없어 건너뜁니다.`);
+      return null;
+    }
+
+    const { x, y } = fromRoomRelative(room, row.room_x, row.room_y);
+
+    const instance = {
+      instanceId: nextInstanceId++,
+      dbId: row.id,
+      itemId: row.item_id,
+      ownerCode: row.owner_code,
+      x,
+      y,
+      scale: row.scale,
+      z: row.z_order,
+    };
+    instance.el = createPlacedItemEl(instance);
+
+    return instance;
+  }
+
+  // placeItem()에서 로컬에 막 놓았지만 아직 INSERT 응답(dbId)을 못 받은 아이템 중에, 지금 막
+  // Realtime으로 도착한 행과 내용이 완전히 같은 게 있는지 찾는다. INSERT의 REST 응답보다
+  // Realtime 이벤트가 먼저 도착하는 드문 경우, 이 아이템이 바로 "그 이벤트"이므로 새로 만들지
+  // 않고 dbId만 붙여준다 (자기 자신의 INSERT가 중복 DOM을 만들지 않게 하는 방어의 일부).
+  function findPendingLocalInsertMatch(row) {
+    const EPSILON = 0.01; // px 단위 - 부동소수점 오차만 흡수하면 되므로 아주 작게 잡는다
+    const room = getRoomForOwnerCode(row.owner_code);
+    if (!room) return null;
+
+    return (
+      placedItems.find((item) => {
+        if (item.dbId) return false; // dbId가 이미 있으면 "확정 대기 중"이 아니다
+        if (item.ownerCode !== row.owner_code || item.itemId !== row.item_id) return false;
+        if (item.scale !== row.scale || item.z !== row.z_order) return false;
+
+        const { room_x, room_y } = toRoomRelative(item, room);
+        return Math.abs(room_x - row.room_x) < EPSILON && Math.abs(room_y - row.room_y) < EPSILON;
+      }) || null
+    );
+  }
+
+  // ---- 쓰기 (로컬에서 확정된 결과를 Supabase로) ----------------------------------
+
+  // 새 아이템을 Supabase에 1행 추가한다. placeItem()이 이미 로컬 배치를 끝낸 뒤 fire-and-forget로
+  // 호출하므로, 실패해도 화면에는 영향이 없다 (다만 새로고침하면 사라짐 - 콘솔에 오류를 남긴다).
+  async function insertPlacedItemRemote(instance, room) {
+    const client = await getSupabaseClient();
+    if (!client) return; // Supabase 연결 자체가 없음 -> 이번 세션은 로컬 전용으로 계속 진행
+
+    const { room_x, room_y } = toRoomRelative(instance, room);
+
+    const { data, error } = await client
+      .from(PLACED_ITEMS_TABLE)
+      .insert({
+        owner_code: instance.ownerCode,
+        item_id: instance.itemId,
+        room_x,
+        room_y,
+        scale: instance.scale,
+        z_order: instance.z,
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      console.error("Supabase에 아이템 저장 실패 (로컬에는 남아있지만 새로고침하면 사라집니다):", error);
+      return;
+    }
+
+    // Realtime 이벤트가 이 응답보다 먼저 도착해서 findPendingLocalInsertMatch가 이미 dbId를
+    // 붙여줬을 수도 있으니, 아직 비어 있을 때만 채운다.
+    if (!instance.dbId) {
+      instance.dbId = data.id;
+    }
+  }
+
+  // instance의 필드 일부(fields)만 Supabase에 UPDATE한다. dbId가 아직 없으면(INSERT가 아직
+  // 안 끝났거나 실패한 상태) 업데이트할 행 자체가 없으므로 조용히 건너뛴다.
+  async function updatePlacedItemRemote(instance, fields) {
+    if (!instance.dbId) return;
+
+    const client = await getSupabaseClient();
+    if (!client) return;
+
+    const { error } = await client.from(PLACED_ITEMS_TABLE).update(fields).eq("id", instance.dbId);
+    if (error) {
+      console.error(`Supabase 아이템 업데이트 실패 (id=${instance.dbId}, fields=${JSON.stringify(fields)}):`, error);
+    }
+  }
+
+  // 크기 조절 버튼 전용: clampItemToRoom이 커진/작아진 아이템을 방 안으로 다시 밀어넣으면서
+  // 위치도 같이 바뀔 수 있으므로, scale과 최신 room_x/room_y를 함께 보낸다.
+  function syncPositionAndScaleRemote(instance) {
+    const { room_x, room_y } = toRoomRelative(instance, activeRoomForDecorate);
+    updatePlacedItemRemote(instance, { room_x, room_y, scale: instance.scale });
+  }
+
+  // 삭제 버튼 전용: dbId가 없으면(DB에 애초에 없던 아이템) 지울 행도 없으므로 조용히 건너뛴다.
+  async function deletePlacedItemRemote(instance) {
+    if (!instance.dbId) return;
+
+    const client = await getSupabaseClient();
+    if (!client) return;
+
+    const { error } = await client.from(PLACED_ITEMS_TABLE).delete().eq("id", instance.dbId);
+    if (error) {
+      console.error(`Supabase 아이템 삭제 실패 (id=${instance.dbId}):`, error);
+    }
+  }
+
+  // ---- 읽기 (Supabase의 변경을 로컬 화면으로) ------------------------------------
+
+  // 다른 접속자가 아이템을 새로 놓았을 때. 이미 로컬에 있는(dbId가 같은) 아이템이면 - 그게
+  // 나 자신이 방금 놓은 것이 확정된 경우든, 이미 다른 경로로 반영된 경우든 - 다시 만들지 않는다.
+  async function handleRemoteInsert(row) {
+    if (!row) return;
+
+    if (placedItems.some((item) => item.dbId === row.id)) return; // 이미 로컬에 있음 -> 중복 방지
+
+    const pendingMatch = findPendingLocalInsertMatch(row);
+    if (pendingMatch) {
+      pendingMatch.dbId = row.id; // 내가 막 놓은 그 아이템이었다 - dbId만 붙이고 새로 그리지 않는다
+      return;
+    }
+
+    // 다른 학생/관리자 계정의 아이템이라 이 세션이 그 카탈로그를 한 번도 안 불러왔을 수 있다.
+    if (!ITEM_CATALOG_BY_ID[row.item_id]) {
+      await loadPersonalItemCatalog({ code: row.owner_code });
+    }
+
+    const instance = buildInstanceFromRow(row);
+    if (!instance) return;
+
+    placedItems.push(instance);
+    worldEl.appendChild(instance.el);
+    renderPlacedItem(instance);
+
+    if (row.z_order >= nextZ) nextZ = row.z_order + 1;
+  }
+
+  // 다른 접속자가 위치/크기/순서를 바꿨을 때(혹은 내가 보낸 UPDATE가 되돌아왔을 때 - 같은 값을
+  // 다시 적용할 뿐이라 무해하다). 로컬에 없는 dbId면(아직 초기 로드 전이거나 이미 삭제됨) 무시한다.
+  function handleRemoteUpdate(row) {
+    if (!row) return;
+
+    const instance = placedItems.find((item) => item.dbId === row.id);
+    if (!instance) return;
+
+    const room = getRoomForOwnerCode(row.owner_code);
+    if (!room) return;
+
+    const { x, y } = fromRoomRelative(room, row.room_x, row.room_y);
+    instance.x = x;
+    instance.y = y;
+    instance.scale = row.scale;
+    instance.z = row.z_order;
+
+    // 지금 이 아이템을 내가 드래그/선택하고 있는 도중에 다른 곳에서 온 업데이트로 room 밖으로
+    // 나가버리는 일이 없도록, 소유자 방 기준으로 한 번 더 가둔다.
+    clampItemToRoom(instance, room);
+    renderPlacedItem(instance);
+
+    if (row.z_order >= nextZ) nextZ = row.z_order + 1;
+  }
+
+  // 다른 접속자가 삭제했을 때(혹은 내가 보낸 DELETE가 되돌아왔을 때 - 이미 로컬에서 지워져 있어
+  // findIndex가 -1이 되므로 자연히 아무 일도 안 한다).
+  function handleRemoteDelete(row) {
+    if (!row || !row.id) return;
+
+    const index = placedItems.findIndex((item) => item.dbId === row.id);
+    if (index === -1) return;
+
+    const [removed] = placedItems.splice(index, 1);
+    if (selectedItem === removed) {
+      deselectItem();
+    }
+    removed.el.remove();
+  }
+
+  // placed_items 테이블의 INSERT/UPDATE/DELETE를 구독한다. 로그인 여부와 무관하게 페이지를 여는
+  // 동안 계속 켜져 있다 (마을 전체가 항상 화면에 존재하고, 누구나 돌아다니며 다른 방을 볼 수
+  // 있으므로 로그인/로그아웃 시마다 다시 구독할 필요가 없다).
+  function subscribeToPlacedItemsRealtime(client) {
+    client
+      .channel("placed-items-sync")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: PLACED_ITEMS_TABLE }, (payload) =>
+        handleRemoteInsert(payload.new)
+      )
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: PLACED_ITEMS_TABLE }, (payload) =>
+        handleRemoteUpdate(payload.new)
+      )
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: PLACED_ITEMS_TABLE }, (payload) =>
+        handleRemoteDelete(payload.old)
+      )
+      .subscribe((status, err) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error("Supabase Realtime 구독에 문제가 생겼습니다 (로컬 조작은 계속 정상 동작합니다):", err || status);
+        }
+      });
+  }
+
+  // 게임 최초 진입(페이지를 연 시점, 로그인 여부와 무관)에 placed_items 전체를 한 번 불러와
+  // 렌더링하고, nextZ를 복원하고, Realtime 구독을 시작한다. 아래에서 한 번만 호출된다.
+  //
+  // "아직 개인 catalog가 로드되지 않아 item_id를 못 찾는" 문제를 피하기 위해, 불러온 행들에
+  // 등장하는 모든 owner_code의 개인 카탈로그를 먼저 전부 불러온 다음에(Promise.all) 그려야
+  // 한다 - 로그인 전이라 currentAccount가 없어도, 방문 중인 계정이 아직 로그인 안 했어도 상관없다.
+  async function initPlacedItemsFromSupabase() {
+    try {
+      const client = await getSupabaseClient();
+      if (!client) {
+        console.error("Supabase 클라이언트가 준비되지 않아 배치된 아이템을 불러오지 못했습니다 (로컬 전용으로 시작합니다).");
+        return;
+      }
+
+      const { data, error } = await client.from(PLACED_ITEMS_TABLE).select("*");
+      if (error) {
+        console.error("Supabase에서 배치된 아이템을 불러오지 못했습니다 (로컬 전용으로 시작합니다):", error);
+        return;
+      }
+
+      const rows = data || [];
+      const ownerCodes = Array.from(new Set(rows.map((row) => row.owner_code)));
+      await Promise.all(ownerCodes.map((code) => loadPersonalItemCatalog({ code })));
+
+      let maxZ = 0;
+      rows.forEach((row) => {
+        const instance = buildInstanceFromRow(row);
+        if (!instance) return;
+
+        placedItems.push(instance);
+        worldEl.appendChild(instance.el);
+        renderPlacedItem(instance);
+
+        if (row.z_order > maxZ) maxZ = row.z_order;
+      });
+      nextZ = maxZ + 1; // 이후 "앞으로" 버튼 등이 항상 불러온 최댓값보다 크게 매겨지도록 복원
+
+      subscribeToPlacedItemsRealtime(client);
+    } catch (err) {
+      console.error("배치된 아이템을 초기화하는 중 예상치 못한 오류가 발생했습니다 (로컬 전용으로 계속 진행합니다):", err);
+    }
+  }
 
   // ---------------------------------------------------------
   // 8. 로그인 흐름 (임시 프론트엔드 계정 - js/accounts.js)
@@ -1120,4 +1452,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 페이지를 열면 로그인 화면이 먼저 보이는 상태이므로, 접속 코드 입력창에 포커스를 맞춰준다.
   loginCodeEl.focus();
+
+  // 로그인 여부와 무관하게, 페이지를 연 시점에 Supabase에 저장된 배치 아이템을 전부 불러와
+  // 마을에 그려 넣는다 (7-3절). 비동기로 진행되며 실패해도 위 로그인 화면 등에는 영향이 없다.
+  initPlacedItemsFromSupabase();
 });
