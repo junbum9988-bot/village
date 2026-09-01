@@ -67,6 +67,9 @@
             <div id="hud-location">📍 -</div>
             <div class="hud-buttons">
               <button type="button" id="btn-overview">전체 마을 보기</button>
+              <!-- 자기 공간에 있을 때만 보임. 다른 학생 공간에서는 아래 #decorate-status("구경 중")로 대체됩니다. -->
+              <button type="button" id="btn-decorate" hidden>꾸미기</button>
+              <span id="decorate-status" hidden>구경 중</span>
               <button type="button" id="btn-logout">로그아웃</button>
             </div>
           </div>
@@ -81,10 +84,29 @@
         </div>
       </main>
 
-      <!-- 사이드 패널: 아이템 선택, 인벤토리 등 (추후 구현). 이번 단계에서는 사용하지 않아 숨겨둡니다. -->
-      <aside id="side-panel">
+      <!-- 사이드 패널(인벤토리): 꾸미기 모드일 때만 보입니다. -->
+      <aside id="side-panel" hidden>
+        <div id="inventory-header">
+          <h2>아이템 선택</h2>
+          <button type="button" id="btn-decorate-done">꾸미기 완료</button>
+        </div>
+
+        <!-- 배치된 아이템을 선택했을 때 크기 조절/삭제 버튼이 여기에 나타납니다. -->
+        <div id="selection-panel">
+          <p id="selection-hint">배치된 아이템을 눌러 선택해보세요.</p>
+          <div id="selection-controls" hidden>
+            <span id="selection-name"></span>
+            <div class="selection-buttons">
+              <button type="button" id="btn-item-bigger">크게</button>
+              <button type="button" id="btn-item-smaller">작게</button>
+              <button type="button" id="btn-item-delete">삭제</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 아이템을 누르면 내 공간 중앙 근처에 배치됩니다. -->
         <div id="item-palette">
-          <!-- 아이템 목록이 들어갈 자리 -->
+          <!-- 아이템 목록이 여기에 채워집니다 (js/main.js, 최대 20개/페이지 구조) -->
         </div>
       </aside>
 

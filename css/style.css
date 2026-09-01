@@ -109,14 +109,50 @@ main#game-container {
 }
 
 #side-panel {
-  /* 프로토타입 단계: 인벤토리/꾸미기 기능이 아직 없어 숨겨두고 월드 영역을 최대한 넓게 씁니다. */
-  display: none;
+  /* 꾸미기 모드일 때만 js/main.js가 hidden 속성을 풀어서 보여줍니다. */
   width: var(--side-panel-width);
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
   background-color: var(--color-surface);
   border-left: 1px solid var(--color-border);
   padding: var(--spacing-md);
   overflow-y: auto;
+}
+
+/* #side-panel{display:flex}가 id 특이도라 [hidden]{display:none}보다 우선 적용돼버리는 것을 막는다.
+   (#game-screen과 같은 이유 - "숨김 속성 + display를 함께 쓰는 요소"는 항상 이 override가 필요) */
+#side-panel[hidden] {
+  display: none;
+}
+
+#inventory-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+#inventory-header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+#btn-decorate-done {
+  padding: 6px 12px;
+  border: none;
+  border-radius: var(--radius);
+  background-color: var(--color-primary);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#btn-decorate-done:hover {
+  background-color: var(--color-primary-dark);
 }
 
 #item-palette {
@@ -574,4 +610,144 @@ main#game-container {
 .overview-label.plaza {
   background-color: #e0b34d;
   color: #4a3210;
+}
+
+/* =========================================================
+   꾸미기 모드 (1차 프로토타입 - 브라우저 메모리에만 저장, 새로고침하면 사라짐)
+   ========================================================= */
+
+/* HUD의 "꾸미기" 버튼 / "구경 중" 표시 */
+#btn-decorate {
+  background-color: rgba(76, 175, 125, 0.22);
+  color: var(--color-primary-dark);
+  font-weight: 700;
+}
+
+#btn-decorate:hover {
+  background-color: rgba(76, 175, 125, 0.35);
+}
+
+#decorate-status {
+  pointer-events: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background-color: rgba(43, 43, 43, 0.08);
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+/* 꾸미기 모드 중에는 화면 이동키를 숨긴다 (전체 마을 보기와 동일한 방식) */
+#game-stage.decorate-active #dpad {
+  display: none;
+}
+
+/* ---------- 인벤토리 아이템 선택 버튼 ---------- */
+.item-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background-color: var(--color-bg);
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: var(--color-text);
+}
+
+.item-choice:hover {
+  border-color: var(--color-primary);
+  background-color: #eef6f0;
+}
+
+.item-choice img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+/* ---------- 선택한 아이템 조절 패널 ---------- */
+#selection-panel {
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+#selection-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+#selection-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#selection-controls[hidden] {
+  display: none;
+}
+
+#selection-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.selection-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.selection-buttons button {
+  padding: 5px 10px;
+  border: none;
+  border-radius: 999px;
+  background-color: rgba(43, 43, 43, 0.1);
+  color: var(--color-text);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.selection-buttons button:hover {
+  background-color: rgba(43, 43, 43, 0.18);
+}
+
+#btn-item-delete {
+  background-color: rgba(209, 69, 59, 0.15);
+  color: #d1453b;
+}
+
+#btn-item-delete:hover {
+  background-color: rgba(209, 69, 59, 0.25);
+}
+
+/* ---------- 마을에 배치된 아이템 (#world 안에 렌더링) ---------- */
+.placed-item {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 꾸미기 모드 중에는 배치된 아이템을 손으로 잡을 수 있다는 것을 커서로 알려준다.
+   (실제 수정 가능 여부는 js/main.js가 소유자를 확인해서 막는다 - 아래 '확장 대비' 주석 참고) */
+#game-stage.decorate-active .placed-item {
+  cursor: grab;
+}
+
+#game-stage.decorate-active .placed-item:active {
+  cursor: grabbing;
+}
+
+.placed-item.selected {
+  outline: 3px dashed var(--color-primary);
+  outline-offset: 3px;
+  border-radius: 6px;
 }

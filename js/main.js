@@ -1,16 +1,20 @@
 /**
  * 우리 반 마을 꾸미기 - 프로토타입
  *
- * 이번 단계 목표: 로그인 화면(임시 프론트엔드 계정)을 통과해야 마을에 들어갈 수 있게 하고,
- * 로그인한 학생의 이름/공간에서 게임이 시작되도록 한다.
+ * 로그인(임시 프론트엔드 계정)을 통과해야 마을에 들어갈 수 있고, 로그인한 학생의 공간에서
+ * 시작한다. 마을 안에서는 걸어다니거나(WASD/방향키/화면 이동키), 전체 마을을 줌아웃해서
+ * 구경하거나, 자기 공간에서는 아이템을 놓고 꾸밀 수 있다.
  * 계정 데이터는 js/accounts.js 에서만 관리한다 (이 파일은 로그인 "흐름"만 다룬다).
  *
- * 다루지 않는 것: Supabase 연동, 실제 인증/DB, 저장, 인벤토리, 꾸미기 기능.
+ * 다루지 않는 것: Supabase 연동, 실제 인증/DB, 꾸미기 결과 저장(새로고침하면 사라짐).
  *
  * 구성
  *   - 맵 데이터 생성   : 방/통로/광장 데이터를 만들고 #world에 DOM으로 렌더링 (로그인과 무관, 한 번만 수행)
  *   - 입력 처리        : 방향키 / WASD / 화면 터치 방향키 입력 수집 (로그인 여부와 무관하게 항상 리스닝)
  *   - 게임 루프        : 로그인에 성공했을 때만 실행 (update → 이동/카메라, render → 화면 반영)
+ *   - 전체 마을 보기    : 카메라를 줌아웃해 4x5 마을 전체를 보여주는 관람 전용 모드 (이동/조작 비활성)
+ *   - 꾸미기 모드       : 자기 공간에서만 켤 수 있는 관람 전용 아님 모드. 이동은 멈추고 인벤토리에서
+ *                        아이템을 골라 배치/이동/크기조절/삭제할 수 있다 (브라우저 메모리에만 저장)
  *   - 로그인 흐름       : 접속 코드+PIN 검사, 성공 시 해당 학생 공간에서 게임 시작, 로그아웃 시 로그인 화면으로 복귀
  */
 
@@ -40,6 +44,22 @@ document.addEventListener("DOMContentLoaded", () => {
   const PLAYER_SPEED = 300; // px / sec
   const PLAYER_RADIUS = 18; // 월드 경계 충돌에 사용하는 반지름
   const CAMERA_TAU = 0.15; // 카메라가 목표 위치를 따라가는 부드러움 정도(초). 작을수록 빠르게 따라붙음.
+
+  // ---------------------------------------------------------
+  // 1-1. 꾸미기 아이템 카탈로그 (1차 프로토타입용 테스트 이미지)
+  // ---------------------------------------------------------
+  // w/h는 scale=1일 때 기본 표시 크기(px). thumb은 인벤토리 썸네일이자 배치된 아이템의 그림으로도 그대로 쓴다.
+  // 나중에 학생별 전용 아이템을 추가할 때는 항목마다 studentCode 같은 필드를 더해
+  // "이 코드로 로그인했을 때만 인벤토리에 보인다" 식으로 확장하면 된다 (아직 미구현).
+  const ITEM_CATALOG = [
+    { id: "tree", name: "나무", thumb: "assets/common/items/tree.svg", w: 64, h: 64 },
+    { id: "flower", name: "꽃", thumb: "assets/common/items/flower.svg", w: 48, h: 48 },
+    { id: "bench", name: "벤치", thumb: "assets/common/items/bench.svg", w: 72, h: 48 },
+    { id: "lamp", name: "가로등", thumb: "assets/common/items/lamp.svg", w: 40, h: 72 },
+    { id: "fence", name: "울타리", thumb: "assets/common/items/fence.svg", w: 72, h: 40 },
+  ];
+  const ITEM_CATALOG_BY_ID = Object.fromEntries(ITEM_CATALOG.map((item) => [item.id, item]));
+  const ITEMS_PER_PAGE = 20; // 인벤토리 한 페이지 최대 개수 (지금은 테스트 아이템 5개뿐이라 1페이지)
 
   // ---------------------------------------------------------
   // 2. 맵 데이터 생성 (로그인 여부와 무관하게 한 번만 만들어둔다)
@@ -134,6 +154,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const loginErrorEl = document.getElementById("login-error");
   const logoutBtnEl = document.getElementById("btn-logout");
   const overviewBtnEl = document.getElementById("btn-overview");
+  const btnDecorateEl = document.getElementById("btn-decorate");
+  const decorateStatusEl = document.getElementById("decorate-status");
+
+  const sidePanelEl = document.getElementById("side-panel");
+  const itemPaletteEl = document.getElementById("item-palette");
+  const btnDecorateDoneEl = document.getElementById("btn-decorate-done");
+  const selectionHintEl = document.getElementById("selection-hint");
+  const selectionControlsEl = document.getElementById("selection-controls");
+  const selectionNameEl = document.getElementById("selection-name");
+  const btnItemBiggerEl = document.getElementById("btn-item-bigger");
+  const btnItemSmallerEl = document.getElementById("btn-item-smaller");
+  const btnItemDeleteEl = document.getElementById("btn-item-delete");
 
   // ---------------------------------------------------------
   // 4. 플레이어 / 카메라 상태
@@ -142,9 +174,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const player = { x: 0, y: 0, facingLeft: false, moving: false };
   const camera = { x: 0, y: 0, scale: 1 }; // scale은 평소 1, 전체 마을 보기에서만 줄어든다.
 
+  let currentAccount = null; // 로그인한 계정 (js/accounts.js의 항목). 로그인 전에는 null.
+
   // 전체 마을 보기(관람 전용) 상태. 켜져 있는 동안은 이동 입력을 전부 무시한다.
   let overviewMode = false;
   let savedCamera = null; // 돌아가기를 눌렀을 때 복원할, 전체 마을 보기 이전의 카메라 상태
+
+  // decorateMode는 7-2절에서 선언되지만, 두 모드 모두 "이동 입력을 막는다"는 점이 같아서
+  // 여기서 함께 판단할 수 있게 헬퍼로 묶어둔다. (함수 본문은 실제로 호출되는 시점에만 평가되므로
+  // 아래쪽에서 let으로 선언되는 decorateMode를 미리 참조해도 문제없다.)
+  function isMovementLocked() {
+    return overviewMode || decorateMode;
+  }
 
   function getClampedCamera(targetX, targetY) {
     const viewW = stageEl.clientWidth;
@@ -219,8 +260,8 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("keydown", (e) => {
     const dir = resolveDirection(e);
     if (dir) {
-      e.preventDefault(); // 방향키로 페이지가 스크롤되는 것 방지 (전체 마을 보기 중에도 동일)
-      if (!overviewMode) {
+      e.preventDefault(); // 방향키로 페이지가 스크롤되는 것 방지 (전체 마을 보기/꾸미기 중에도 동일)
+      if (!isMovementLocked()) {
         keyboardPressed.add(dir);
       }
     }
@@ -275,7 +316,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const press = (e) => {
         e.preventDefault();
-        if (overviewMode) return; // 전체 마을 보기(관람 전용) 중에는 화면 이동키도 무시한다.
+        if (isMovementLocked()) return; // 전체 마을 보기/꾸미기 중에는 화면 이동키도 무시한다.
 
         activePointerIds.add(e.pointerId);
         // 포인터를 캡처해서, 버튼 밖으로 손가락이 살짝 밀려도 손을 뗄 때까지는 계속 눌린 상태로 인식한다.
@@ -306,18 +347,24 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ---------------------------------------------------------
-  // 6. 현재 위치(구역) 판별 -> HUD 문구
+  // 6. 현재 위치(구역) 판별 -> HUD 문구 / 꾸미기 버튼 상태
   // ---------------------------------------------------------
+  function getCurrentRoomOrNull() {
+    return (
+      rooms.find(
+        (r) =>
+          player.x >= r.x &&
+          player.x <= r.x + r.w &&
+          player.y >= r.y &&
+          player.y <= r.y + r.h
+      ) || null
+    );
+  }
+
   let lastLocationLabel = "";
 
   function updateLocationLabel() {
-    const inside = rooms.find(
-      (r) =>
-        player.x >= r.x &&
-        player.x <= r.x + r.w &&
-        player.y >= r.y &&
-        player.y <= r.y + r.h
-    );
+    const inside = getCurrentRoomOrNull();
 
     const label = inside
       ? inside.isPlaza
@@ -328,6 +375,42 @@ document.addEventListener("DOMContentLoaded", () => {
     if (label !== lastLocationLabel) {
       lastLocationLabel = label;
       hudLocationEl.textContent = `📍 ${label}`;
+      refreshHudControls(); // 구역이 바뀌면 "꾸미기" 버튼 / "구경 중" 표시도 같이 갱신한다.
+    }
+  }
+
+  // 지금 상태(전체 마을 보기 / 꾸미기 / 위치)에 맞춰 HUD 버튼들을 보이거나 숨긴다.
+  function refreshHudControls() {
+    if (overviewMode) {
+      // 전체 마을 보기 중에는 "돌아가기"만 의미가 있고, 나머지 버튼은 다 숨긴다.
+      overviewBtnEl.hidden = false;
+      btnDecorateEl.hidden = true;
+      decorateStatusEl.hidden = true;
+      return;
+    }
+
+    if (decorateMode) {
+      // 꾸미기 패널의 "꾸미기 완료" 버튼이 그 역할을 대신하므로 HUD 버튼들은 숨긴다.
+      overviewBtnEl.hidden = true;
+      btnDecorateEl.hidden = true;
+      decorateStatusEl.hidden = true;
+      return;
+    }
+
+    overviewBtnEl.hidden = false;
+
+    const room = getCurrentRoomOrNull();
+
+    if (!currentAccount || !room || room.isPlaza) {
+      // 마을 길과 광장은 이번 단계에서는 꾸미기 비활성 (버튼도, "구경 중" 표시도 없음)
+      btnDecorateEl.hidden = true;
+      decorateStatusEl.hidden = true;
+    } else if (room.name === currentAccount.name) {
+      btnDecorateEl.hidden = false;
+      decorateStatusEl.hidden = true;
+    } else {
+      btnDecorateEl.hidden = true;
+      decorateStatusEl.hidden = false;
     }
   }
 
@@ -418,7 +501,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // 7-1. 전체 마을 보기 (관람 전용 - 이동/조작 모두 비활성화)
   // ---------------------------------------------------------
   function enterOverview() {
-    if (overviewMode) return;
+    if (isMovementLocked()) return; // 이미 전체 마을 보기 중이거나, 꾸미기 중에는 들어갈 수 없다.
     overviewMode = true;
 
     // 지금 누르고 있던 키/터치가 남아있으면 전체 마을 보기에서 빠져나올 때
@@ -446,6 +529,7 @@ document.addEventListener("DOMContentLoaded", () => {
     overviewBtnEl.textContent = "돌아가기";
 
     hudLocationEl.textContent = "🗺️ 전체 마을 보기 (관람 모드)";
+    refreshHudControls();
 
     render();
   }
@@ -483,6 +567,254 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // ---------------------------------------------------------
+  // 7-2. 꾸미기 모드 (1차 프로토타입)
+  // ---------------------------------------------------------
+  // 배치한 아이템은 이 배열(placedItems)에만 존재하는 "브라우저 메모리" 상태다.
+  // Supabase를 연결하기 전까지는 새로고침하면 전부 사라진다 (요구사항대로).
+  //
+  // 확장 대비: 아이템마다 ownerCode(배치한 학생의 접속 코드)를 붙여두고, 클릭/드래그 핸들러에서
+  // "지금 로그인한 사람 == ownerCode"인지 매번 확인한다. 지금은 꾸미기 모드 자체가 "내 방일 때만"
+  // 켜지는 구조라 항상 참이지만, 나중에 다른 학생 공간의 아이템까지 화면에 그리게 되더라도
+  // 이 체크 하나로 "남의 아이템은 못 만짐"이 그대로 유지된다.
+  const ITEM_MIN_SCALE = 0.5;
+  const ITEM_MAX_SCALE = 2;
+  const ITEM_SCALE_STEP = 0.15;
+
+  let decorateMode = false;
+  let activeRoomForDecorate = null; // 꾸미기 모드에 들어갈 때의 "내 방" (모드가 켜져 있는 동안 고정)
+  let selectedItem = null;
+  let nextInstanceId = 1;
+  /** @type {{instanceId:number, itemId:string, ownerCode:string, x:number, y:number, scale:number, el:HTMLElement}[]} */
+  const placedItems = [];
+
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function getItemSize(catalogEntry, scale) {
+    return { w: catalogEntry.w * scale, h: catalogEntry.h * scale };
+  }
+
+  // 아이템이 커지거나 옮겨지더라도 소유자 공간 밖으로 나가지 않도록 좌표를 다시 가둔다.
+  function clampItemToRoom(instance, room) {
+    const catalogEntry = ITEM_CATALOG_BY_ID[instance.itemId];
+    const { w, h } = getItemSize(catalogEntry, instance.scale);
+    instance.x = clamp(instance.x, room.x + w / 2, room.x + room.w - w / 2);
+    instance.y = clamp(instance.y, room.y + h / 2, room.y + room.h - h / 2);
+  }
+
+  // instance의 x/y/scale 값을 실제 화면(#world 안 요소)에 반영한다.
+  function renderPlacedItem(instance) {
+    const catalogEntry = ITEM_CATALOG_BY_ID[instance.itemId];
+    const { w, h } = getItemSize(catalogEntry, instance.scale);
+    instance.el.style.left = `${instance.x}px`;
+    instance.el.style.top = `${instance.y}px`;
+    instance.el.style.width = `${w}px`;
+    instance.el.style.height = `${h}px`;
+  }
+
+  function selectItem(instance) {
+    if (selectedItem) {
+      selectedItem.el.classList.remove("selected");
+    }
+    selectedItem = instance;
+    selectedItem.el.classList.add("selected");
+
+    selectionNameEl.textContent = ITEM_CATALOG_BY_ID[instance.itemId].name;
+    selectionHintEl.hidden = true;
+    selectionControlsEl.hidden = false;
+  }
+
+  function deselectItem() {
+    if (selectedItem) {
+      selectedItem.el.classList.remove("selected");
+    }
+    selectedItem = null;
+    selectionHintEl.hidden = false;
+    selectionControlsEl.hidden = true;
+  }
+
+  // 화면 좌표(px) -> 월드 좌표 변환. 꾸미기 모드에서는 camera.scale이 항상 1이지만,
+  // 나중에 다른 화면에서도 드래그를 재사용할 수 있도록 배율까지 반영해서 계산해둔다.
+  function screenToWorld(clientX, clientY) {
+    const stageRect = stageEl.getBoundingClientRect();
+    return {
+      x: (clientX - stageRect.left) / camera.scale + camera.x,
+      y: (clientY - stageRect.top) / camera.scale + camera.y,
+    };
+  }
+
+  function createPlacedItemEl(instance) {
+    const catalogEntry = ITEM_CATALOG_BY_ID[instance.itemId];
+    const el = document.createElement("div");
+    el.className = "placed-item";
+    el.style.backgroundImage = `url("${catalogEntry.thumb}")`;
+    el.dataset.instanceId = String(instance.instanceId);
+
+    el.addEventListener("pointerdown", (e) => {
+      if (!decorateMode) return; // 꾸미기 모드가 아닐 때는 그냥 마을에 놓인 장식일 뿐, 조작할 수 없다.
+      if (instance.ownerCode !== currentAccount.code) return; // 남의 아이템은 잡을 수 없다.
+
+      e.preventDefault();
+      e.stopPropagation(); // stageEl의 "빈 곳 클릭 시 선택 해제" 핸들러로 번지지 않게 한다.
+      selectItem(instance);
+
+      const startWorld = screenToWorld(e.clientX, e.clientY);
+      const grabOffsetX = instance.x - startWorld.x;
+      const grabOffsetY = instance.y - startWorld.y;
+
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch (err) {
+        /* 캡처 실패해도 드래그 자체는 계속 동작함 */
+      }
+
+      const onMove = (moveEvent) => {
+        const world = screenToWorld(moveEvent.clientX, moveEvent.clientY);
+        instance.x = world.x + grabOffsetX;
+        instance.y = world.y + grabOffsetY;
+        clampItemToRoom(instance, activeRoomForDecorate);
+        renderPlacedItem(instance);
+      };
+
+      const onUp = () => {
+        el.removeEventListener("pointermove", onMove);
+        el.removeEventListener("pointerup", onUp);
+        el.removeEventListener("pointercancel", onUp);
+      };
+
+      el.addEventListener("pointermove", onMove);
+      el.addEventListener("pointerup", onUp);
+      el.addEventListener("pointercancel", onUp);
+    });
+
+    return el;
+  }
+
+  // 인벤토리에서 아이템을 눌렀을 때: 지금 꾸미고 있는 내 공간 중앙 근처에 하나 배치한다.
+  function placeItem(catalogEntry) {
+    if (!decorateMode || !activeRoomForDecorate || !currentAccount) return;
+
+    const room = activeRoomForDecorate;
+    const jitterX = (Math.random() - 0.5) * 80;
+    const jitterY = (Math.random() - 0.5) * 60;
+
+    const instance = {
+      instanceId: nextInstanceId++,
+      itemId: catalogEntry.id,
+      ownerCode: currentAccount.code,
+      x: room.x + room.w / 2 + jitterX,
+      y: room.y + room.h / 2 + jitterY,
+      scale: 1,
+    };
+    clampItemToRoom(instance, room);
+
+    const el = createPlacedItemEl(instance);
+    instance.el = el;
+    worldEl.appendChild(el);
+    renderPlacedItem(instance);
+    placedItems.push(instance);
+
+    selectItem(instance); // 방금 놓은 아이템을 바로 선택해서 크기 조절/삭제를 이어서 할 수 있게 한다.
+  }
+
+  // 인벤토리 목록을 그린다. ITEMS_PER_PAGE(20)씩 잘라서 그리는 구조라, 아이템이 늘어나도
+  // 이 함수 자체는 바꿀 필요 없이 페이지 번호만 넘기면 되도록 만들어뒀다 (지금은 1페이지 고정).
+  function renderInventory(page = 0) {
+    itemPaletteEl.innerHTML = "";
+
+    const start = page * ITEMS_PER_PAGE;
+    const pageItems = ITEM_CATALOG.slice(start, start + ITEMS_PER_PAGE);
+
+    pageItems.forEach((catalogEntry) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "item-choice";
+
+      const img = document.createElement("img");
+      img.src = catalogEntry.thumb;
+      img.alt = catalogEntry.name;
+
+      const label = document.createElement("span");
+      label.textContent = catalogEntry.name;
+
+      btn.appendChild(img);
+      btn.appendChild(label);
+      btn.addEventListener("click", () => placeItem(catalogEntry));
+
+      itemPaletteEl.appendChild(btn);
+    });
+  }
+
+  function enterDecorateMode() {
+    if (isMovementLocked() || !currentAccount) return;
+
+    const room = getCurrentRoomOrNull();
+    if (!room || room.isPlaza || room.name !== currentAccount.name) return; // 버튼이 숨겨져 있어 보통은 여기 안 옴 (방어적 처리)
+
+    decorateMode = true;
+    activeRoomForDecorate = room;
+
+    // 꾸미기 중에는 이동이 완전히 멈춰야 하므로, 게임 루프도 전체 마을 보기와 같은 방식으로 정지한다.
+    keyboardPressed.clear();
+    touchPressed.clear();
+    stopLoop();
+
+    deselectItem();
+    renderInventory();
+    sidePanelEl.hidden = false;
+
+    stageEl.classList.add("decorate-active");
+    refreshHudControls();
+  }
+
+  function exitDecorateMode() {
+    if (!decorateMode) return;
+
+    decorateMode = false;
+    activeRoomForDecorate = null;
+    deselectItem();
+
+    sidePanelEl.hidden = true;
+    stageEl.classList.remove("decorate-active");
+
+    refreshHudControls();
+    startLoop();
+  }
+
+  btnDecorateEl.addEventListener("click", enterDecorateMode);
+  btnDecorateDoneEl.addEventListener("click", exitDecorateMode);
+
+  btnItemBiggerEl.addEventListener("click", () => {
+    if (!selectedItem) return;
+    selectedItem.scale = clamp(selectedItem.scale + ITEM_SCALE_STEP, ITEM_MIN_SCALE, ITEM_MAX_SCALE);
+    clampItemToRoom(selectedItem, activeRoomForDecorate);
+    renderPlacedItem(selectedItem);
+  });
+
+  btnItemSmallerEl.addEventListener("click", () => {
+    if (!selectedItem) return;
+    selectedItem.scale = clamp(selectedItem.scale - ITEM_SCALE_STEP, ITEM_MIN_SCALE, ITEM_MAX_SCALE);
+    clampItemToRoom(selectedItem, activeRoomForDecorate);
+    renderPlacedItem(selectedItem);
+  });
+
+  btnItemDeleteEl.addEventListener("click", () => {
+    if (!selectedItem) return;
+    const index = placedItems.indexOf(selectedItem);
+    if (index !== -1) placedItems.splice(index, 1);
+    selectedItem.el.remove();
+    deselectItem();
+  });
+
+  // 아이템이 아닌 빈 잔디(#game-stage)를 누르면 선택을 해제한다.
+  stageEl.addEventListener("pointerdown", (e) => {
+    if (!decorateMode) return;
+    if (e.target.closest(".placed-item")) return; // 아이템 위 클릭은 위 핸들러가 이미 처리
+    deselectItem();
+  });
+
+  // ---------------------------------------------------------
   // 8. 로그인 흐름 (임시 프론트엔드 계정 - js/accounts.js)
   // ---------------------------------------------------------
   function placePlayerForAccount(account) {
@@ -511,6 +843,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function enterGame(account) {
+    currentAccount = account;
     hudNameEl.textContent = `👤 ${account.name}`;
 
     loginScreenEl.hidden = true;
@@ -537,11 +870,23 @@ document.addEventListener("DOMContentLoaded", () => {
       overviewBtnEl.textContent = "전체 마을 보기";
     }
 
+    // 꾸미기 중에 로그아웃하는 경우도 마찬가지로 화면 상태를 되돌린다.
+    // (배치해둔 아이템 자체는 지우지 않는다 - 같은 브라우저 세션에서 다시 로그인하면 그대로 보인다.
+    //  전부 사라지는 건 "새로고침했을 때"뿐이라는 요구사항에 맞춘 것.)
+    if (decorateMode) {
+      decorateMode = false;
+      activeRoomForDecorate = null;
+      deselectItem();
+      sidePanelEl.hidden = true;
+      stageEl.classList.remove("decorate-active");
+    }
+
     stopLoop();
 
     keyboardPressed.clear();
     touchPressed.clear();
 
+    currentAccount = null;
     gameScreenEl.hidden = true;
     loginScreenEl.hidden = false;
 
