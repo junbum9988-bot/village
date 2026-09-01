@@ -14,7 +14,9 @@
  *   - 게임 루프        : 로그인에 성공했을 때만 실행 (update → 이동/카메라, render → 화면 반영)
  *   - 전체 마을 보기    : 카메라를 줌아웃해 4x5 마을 전체를 보여주는 관람 전용 모드 (이동/조작 비활성)
  *   - 꾸미기 모드       : 자기 공간에서만 켤 수 있는 관람 전용 아님 모드. 이동은 멈추고 인벤토리에서
- *                        아이템을 골라 배치/이동/크기조절/삭제할 수 있다 (브라우저 메모리에만 저장)
+ *                        아이템을 골라 배치/이동/크기조절/삭제할 수 있다 (브라우저 메모리에만 저장).
+ *                        관리자 계정(T로 시작하는 접속 코드)은 공통 아이템에 더해
+ *                        assets/admin/items/items.json에서 불러온 전용 아이템도 함께 보인다.
  *   - 로그인 흐름       : 접속 코드+PIN 검사, 성공 시 해당 학생 공간에서 게임 시작, 로그아웃 시 로그인 화면으로 복귀
  */
 
@@ -46,20 +48,25 @@ document.addEventListener("DOMContentLoaded", () => {
   const CAMERA_TAU = 0.15; // 카메라가 목표 위치를 따라가는 부드러움 정도(초). 작을수록 빠르게 따라붙음.
 
   // ---------------------------------------------------------
-  // 1-1. 꾸미기 아이템 카탈로그 (1차 프로토타입용 테스트 이미지)
+  // 1-1. 꾸미기 아이템 카탈로그
   // ---------------------------------------------------------
   // w/h는 scale=1일 때 기본 표시 크기(px). thumb은 인벤토리 썸네일이자 배치된 아이템의 그림으로도 그대로 쓴다.
-  // 나중에 학생별 전용 아이템을 추가할 때는 항목마다 studentCode 같은 필드를 더해
-  // "이 코드로 로그인했을 때만 인벤토리에 보인다" 식으로 확장하면 된다 (아직 미구현).
-  const ITEM_CATALOG = [
+  //
+  // BASE_ITEM_CATALOG: 모든 계정이 공통으로 쓰는 테스트 아이템 (1차 프로토타입용). 아직 삭제하지 않고 유지한다.
+  // 계정별 전용 아이템(예: 관리자용)은 여기에 하드코딩하지 않고, 계정별 JSON 카탈로그를 fetch로 불러와
+  // ITEM_CATALOG_BY_ID / activeItemCatalog에 합쳐 넣는 방식으로 확장한다 (7-2절 loadAdminItemCatalog 참고).
+  const BASE_ITEM_CATALOG = [
     { id: "tree", name: "나무", thumb: "assets/common/items/tree.svg", w: 64, h: 64 },
     { id: "flower", name: "꽃", thumb: "assets/common/items/flower.svg", w: 48, h: 48 },
     { id: "bench", name: "벤치", thumb: "assets/common/items/bench.svg", w: 72, h: 48 },
     { id: "lamp", name: "가로등", thumb: "assets/common/items/lamp.svg", w: 40, h: 72 },
     { id: "fence", name: "울타리", thumb: "assets/common/items/fence.svg", w: 72, h: 40 },
   ];
-  const ITEM_CATALOG_BY_ID = Object.fromEntries(ITEM_CATALOG.map((item) => [item.id, item]));
-  const ITEMS_PER_PAGE = 20; // 인벤토리 한 페이지 최대 개수 (지금은 테스트 아이템 5개뿐이라 1페이지)
+  // 배치된 아이템(instance.itemId)을 그릴 때는 항상 이 맵 하나로 조회한다. 처음엔 공통 아이템만
+  // 들어있고, 관리자 전용 아이템은 로그인 후 비동기로 불러와 이 맵에 추가된다(불변 const여도
+  // 객체 내용 자체는 계속 채워 넣을 수 있다).
+  const ITEM_CATALOG_BY_ID = Object.fromEntries(BASE_ITEM_CATALOG.map((item) => [item.id, item]));
+  const ITEMS_PER_PAGE = 20; // 인벤토리 한 페이지 최대 개수
 
   // ---------------------------------------------------------
   // 2. 맵 데이터 생성 (로그인 여부와 무관하게 한 번만 만들어둔다)
@@ -607,6 +614,68 @@ document.addEventListener("DOMContentLoaded", () => {
   /** @type {{instanceId:number, itemId:string, ownerCode:string, x:number, y:number, scale:number, z:number, el:HTMLElement}[]} */
   const placedItems = [];
 
+  // ---------------------------------------------------------
+  // 7-2-0. 계정별 아이템 카탈로그 (관리자 전용 items.json 로드)
+  // ---------------------------------------------------------
+  // 지금 인벤토리 화면에 보여줄 아이템 목록. 평소엔 공통 아이템뿐이지만, 관리자 계정으로 꾸미기
+  // 모드에 들어가면 assets/admin/items/items.json에서 불러온 아이템이 여기 합쳐진다.
+  let activeItemCatalog = BASE_ITEM_CATALOG;
+  let totalPages = 1; // renderInventory()가 activeItemCatalog 기준으로 매번 다시 계산해 넣는다.
+
+  // 관리자 전용 아이템 캐시. 세션(로그인 유지) 동안 한 번만 불러오면 되므로 Promise를 캐싱해서
+  // 꾸미기 모드를 여러 번 여닫아도 fetch가 중복으로 일어나지 않게 한다.
+  let adminItemCatalog = [];
+  let adminItemsLoadPromise = null;
+
+  // 지금은 접속 코드가 "T"로 시작하면(교사/관리자용, 현재는 T00 하나뿐) 관리자로 취급한다.
+  // accounts.js에 관리자가 늘어나도 코드 접두사 규칙만 지키면 이 함수를 바꿀 필요가 없다.
+  function isAdminAccount(account) {
+    return !!account && String(account.code || "").toUpperCase().startsWith("T");
+  }
+
+  // assets/admin/items/items.json 안 아이템에 지정하지 않은 경우 쓸 기본 표시 크기(px).
+  const DEFAULT_ADMIN_ITEM_SIZE = 96;
+
+  // assets/admin/items/items.json을 fetch로 읽어와 기존 카탈로그 형식(id/name/thumb/w/h)에 맞게
+  // 옮겨 담는다. items.json 쪽 필드명(image, animated)은 그대로 두고 thumb = image로 매핑한다.
+  // 불러온 아이템은 ITEM_CATALOG_BY_ID에도 합쳐 넣어야, 이미 배치된 아이템을 다시 그리거나
+  // (크기 조절, 앞/뒤 순서 변경 등) 선택할 때 항상 같은 맵 하나로 조회할 수 있다.
+  function loadAdminItemCatalog() {
+    if (adminItemsLoadPromise) return adminItemsLoadPromise; // 이미 불러왔거나 불러오는 중이면 재사용
+
+    adminItemsLoadPromise = fetch("assets/admin/items/items.json")
+      .then((res) => {
+        if (!res.ok) throw new Error(`items.json 응답 오류 (HTTP ${res.status})`);
+        return res.json();
+      })
+      .then((rawItems) => {
+        const mapped = (Array.isArray(rawItems) ? rawItems : []).map((raw) => ({
+          id: raw.id,
+          name: raw.name,
+          thumb: raw.image,
+          animated: Boolean(raw.animated),
+          w: raw.w || DEFAULT_ADMIN_ITEM_SIZE,
+          h: raw.h || DEFAULT_ADMIN_ITEM_SIZE,
+        }));
+
+        mapped.forEach((item) => {
+          ITEM_CATALOG_BY_ID[item.id] = item;
+        });
+
+        adminItemCatalog = mapped;
+        return mapped;
+      })
+      .catch((err) => {
+        // 정적 서버 없이 index.html을 file://로 직접 열었거나, items.json이 없거나 형식이
+        // 잘못됐을 때도 게임 자체는 계속 쓸 수 있어야 하므로 공통 아이템만으로 조용히 폴백한다.
+        console.error("관리자 아이템 목록(assets/admin/items/items.json)을 불러오지 못했습니다:", err);
+        adminItemCatalog = [];
+        return adminItemCatalog;
+      });
+
+    return adminItemsLoadPromise;
+  }
+
   function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
   }
@@ -741,17 +810,16 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 인벤토리 목록을 그린다. ITEMS_PER_PAGE(20)씩 잘라서 그리는 구조라, 아이템이 늘어나도
-  // 이 함수 자체는 바꿀 필요 없이 페이지 번호만 넘기면 된다. 지금은 테스트 아이템이
-  // 5개뿐이라 항상 1페이지지만, ◀ 1 / 1 ▶ 형태로 페이지 이동 UI 자체는 항상 보여준다.
-  const totalPages = Math.max(1, Math.ceil(ITEM_CATALOG.length / ITEMS_PER_PAGE));
-
+  // 이 함수 자체는 바꿀 필요 없이 activeItemCatalog만 바뀌면 된다. 계정에 따라 목록 길이가
+  // 달라질 수 있어 totalPages도 호출할 때마다 다시 계산한다.
   function renderInventory() {
+    totalPages = Math.max(1, Math.ceil(activeItemCatalog.length / ITEMS_PER_PAGE));
     currentPage = clamp(currentPage, 0, totalPages - 1);
 
     itemPaletteEl.innerHTML = "";
 
     const start = currentPage * ITEMS_PER_PAGE;
-    const pageItems = ITEM_CATALOG.slice(start, start + ITEMS_PER_PAGE);
+    const pageItems = activeItemCatalog.slice(start, start + ITEMS_PER_PAGE);
 
     pageItems.forEach((catalogEntry) => {
       const btn = document.createElement("button");
@@ -807,6 +875,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
     deselectItem();
     currentPage = 0;
+
+    // 관리자 계정은 공통 아이템에 더해 assets/admin/items/items.json 아이템도 함께 보여준다.
+    // 학생 계정(01~18)은 지금까지와 동일하게 공통 아이템만 보인다 (이번 작업에서는 손대지 않음).
+    if (isAdminAccount(currentAccount)) {
+      activeItemCatalog = BASE_ITEM_CATALOG.concat(adminItemCatalog); // 캐시가 있으면 즉시 반영
+      renderInventory();
+      sidePanelEl.hidden = false;
+      stageEl.classList.add("decorate-active");
+      refreshHudControls();
+
+      loadAdminItemCatalog().then((items) => {
+        // 로딩되는 동안 꾸미기 모드를 빠져나갔거나 다른 계정으로 바뀌었으면 화면을 건드리지 않는다.
+        if (!decorateMode || !isAdminAccount(currentAccount)) return;
+        activeItemCatalog = BASE_ITEM_CATALOG.concat(items);
+        renderInventory();
+      });
+      return;
+    }
+
+    activeItemCatalog = BASE_ITEM_CATALOG;
     renderInventory();
     sidePanelEl.hidden = false;
 
