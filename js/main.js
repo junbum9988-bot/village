@@ -257,7 +257,18 @@ document.addEventListener("DOMContentLoaded", () => {
     return CODE_TO_DIR[e.code] || KEY_TO_DIR[e.key.toLowerCase()] || null;
   }
 
+  // 로그인 접속 코드/PIN 입력창처럼 글자를 직접 타이핑하는 요소에 포커스가 있을 때는
+  // WASD/방향키를 이동 입력으로 가로채면 안 된다 (안 그러면 "S06" 같은 코드에 든
+  // s/d조차 입력이 안 먹는 문제가 생긴다).
+  function isTypingTarget(target) {
+    if (!target) return false;
+    const tag = target.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable;
+  }
+
   window.addEventListener("keydown", (e) => {
+    if (isTypingTarget(e.target)) return;
+
     const dir = resolveDirection(e);
     if (dir) {
       e.preventDefault(); // 방향키로 페이지가 스크롤되는 것 방지 (전체 마을 보기/꾸미기 중에도 동일)
@@ -268,6 +279,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   window.addEventListener("keyup", (e) => {
+    if (isTypingTarget(e.target)) return;
+
     const dir = resolveDirection(e);
     if (dir) {
       keyboardPressed.delete(dir);
