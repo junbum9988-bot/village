@@ -3,3 +3,12 @@ Thumbs.db
 node_modules/
 .env
 .env.local
+
+# 관리자/학생 원본 이미지(assets/**/original)는 용량이 크고 개인 원본 자료라
+# GitHub에 커밋하지 않는다. 폴더 구조 유지를 위한 .gitkeep만 예외로 추적한다.
+# 실제로 쓰는 변환 결과물(assets/**/items/*.webp)은 이 규칙과 무관하게 계속 커밋된다.
+assets/admin/original/*
+!assets/admin/original/.gitkeep
+
+assets/students/*/original/*
+!assets/students/*/original/.gitkeep

@@ -1,0 +1,12 @@
+{
+  "name": "village",
+  "private": true,
+  "version": "1.0.0",
+  "description": "우리 반 마을 꾸미기 - 정적 웹게임",
+  "scripts": {
+    "convert:admin": "node scripts/convert-admin-assets.js"
+  },
+  "dependencies": {
+    "sharp": "^0.35.4"
+  }
+}
