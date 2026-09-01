@@ -172,24 +172,76 @@ function computeDisplaySize(width, height, maxSize = MAX_ITEM_DISPLAY_SIZE) {
   };
 }
 
+// filePath에 있는 기존 items.json을 읽어 배열로 돌려준다. Supabase에 이미 이 id들이 저장돼
+// 있을 수 있으므로 여기서 실패한다고 예외를 던지면 안 된다 - 파일이 없으면(처음 변환) 빈 배열,
+// 내용이 배열이 아니거나 JSON이 깨졌으면 경고만 남기고 역시 빈 배열로 취급해 "새로 만드는 것"과
+// 같은 경로를 타게 한다 (기존 id를 하나도 재사용 못 할 뿐, 변환 자체는 계속 진행된다).
+function readPreviousItemsJson(filePath) {
+  if (!fs.existsSync(filePath)) return [];
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (!Array.isArray(parsed)) {
+      console.error(`${filePath}의 내용이 배열이 아니라 기존 id를 재사용하지 못합니다.`);
+      return [];
+    }
+    return parsed;
+  } catch (err) {
+    console.error(`${filePath}를 읽지 못해 기존 id를 재사용하지 못합니다:`, err.message);
+    return [];
+  }
+}
+
 /**
  * convertImagesInDir()가 돌려준 results를 items.json 항목 배열로 변환한다.
- * - id: `${idPrefix}-${파일명 슬러그}` (같은 배열 안에서 겹치면 -2, -3 ... 을 붙여 구분)
- * - name: 확장자를 뗀 원본 파일명 그대로
- * - image: `${imageDirPath}/${출력 파일명}` (예: assets/students/01/items/집.webp)
+ *
+ * id 안정성: Supabase에 저장된 placed_items.item_id가 이 id를 참조하게 될 것이므로, 한 번
+ * 발급된 id는 재변환해도 최대한 그대로 유지한다. previousEntries(같은 학생의 기존 items.json
+ * 내용)를 넘기면, "결과물 WebP 파일명이 기존 항목의 image 파일명과 같은 경우"를 같은 아이템으로
+ * 보고 기존 id를 그대로 재사용한다 - 파일명이 안 바뀌는 한 재변환/재정렬/파일 추가삭제와
+ * 무관하게 id가 고정된다. 매번 새 UUID를 찍어내는 방식은 쓰지 않는다.
+ *
+ * - id: 기존 항목과 매칭되면 그 id를 재사용. 새 아이템이면 `${idPrefix}-${파일명 슬러그}`로 생성.
+ *   같은 슬러그가 이미 쓰이고 있으면(지금 배치분 + 과거 items.json에 남아있던 id 전부 포함해서)
+ *   -2, -3 ... 을 붙여 절대 겹치지 않게 만든다.
+ * - name: 확장자를 뗀 원본 파일명 그대로 (재변환 시에도 항상 최신 파일명으로 갱신)
+ * - image: `${imageDirPath}/${출력 파일명}`
  * - animated: 원본이 GIF였는지 여부
  * - w/h: computeDisplaySize()로 계산한 기본 표시 크기
  */
-function buildItemCatalogEntries(results, { idPrefix, imageDirPath }) {
-  const usedIds = new Set();
+function buildItemCatalogEntries(results, { idPrefix, imageDirPath, previousEntries = [] }) {
+  // 기존 항목을 "결과물 파일명"으로 찾아볼 수 있게 색인해둔다 (같은 파일명 = 같은 아이템으로 간주).
+  const previousByOutputName = new Map();
+  for (const entry of previousEntries) {
+    if (!entry || typeof entry.id !== "string" || typeof entry.image !== "string") continue;
+    const outputName = path.basename(entry.image);
+    if (!previousByOutputName.has(outputName)) {
+      previousByOutputName.set(outputName, entry);
+    }
+  }
+
+  // 지금 이 학생에게 한 번이라도 발급됐던 id는 전부 "이미 쓰인 id"로 취급한다. 재사용되는 id는
+  // 물론이고, 지금은 매칭되는 파일이 없어 안 쓰이는(예: 파일이 지워진) 옛 id까지 예약해둬야
+  // 새 아이템이 우연히 예전 id와 같은 문자열을 다시 받는 걸 막을 수 있다 (Supabase에는 그
+  // id로 이미 예전 아이템이 저장돼 있을 수 있으므로).
+  const usedIds = new Set(
+    previousEntries.filter((entry) => entry && typeof entry.id === "string").map((entry) => entry.id)
+  );
 
   return results.map((result) => {
-    const baseSlug = slugifyBaseName(result.baseName);
-    let id = `${idPrefix}-${baseSlug}`;
-    let suffix = 2;
-    while (usedIds.has(id)) {
-      id = `${idPrefix}-${baseSlug}-${suffix}`;
-      suffix += 1;
+    const matchedPrevious = previousByOutputName.get(result.outputName);
+
+    let id;
+    if (matchedPrevious) {
+      id = matchedPrevious.id; // 같은 파일명 -> 같은 아이템으로 보고 기존 id 그대로 재사용
+    } else {
+      const baseSlug = slugifyBaseName(result.baseName);
+      id = `${idPrefix}-${baseSlug}`;
+      let suffix = 2;
+      while (usedIds.has(id)) {
+        id = `${idPrefix}-${baseSlug}-${suffix}`;
+        suffix += 1;
+      }
     }
     usedIds.add(id);
 
@@ -221,6 +273,7 @@ module.exports = {
   convertImagesInDir,
   slugifyBaseName,
   computeDisplaySize,
+  readPreviousItemsJson,
   buildItemCatalogEntries,
   writeItemsJson,
 };

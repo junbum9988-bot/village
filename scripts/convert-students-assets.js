@@ -24,6 +24,7 @@ const path = require("path");
 const {
   listConvertibleFiles,
   convertImagesInDir,
+  readPreviousItemsJson,
   buildItemCatalogEntries,
   writeItemsJson,
 } = require("./lib/convert-images");
@@ -69,9 +70,15 @@ async function convertStudent(studentNumber) {
   // 변환에 성공한 파일만으로 items.json을 새로 만든다 (실패한 파일은 자연히 빠진다).
   // 성공한 파일이 하나도 없으면(전부 실패) 굳이 빈 items.json으로 덮어쓰지 않는다.
   if (results.length > 0) {
+    // 기존 items.json을 먼저 읽어서 넘긴다 - buildItemCatalogEntries가 "결과물 파일명이 같으면
+    // 같은 아이템"으로 보고 예전 id를 그대로 재사용하므로, Supabase에 이미 저장됐을 수 있는
+    // item_id가 재변환한다고 바뀌지 않는다.
+    const previousEntries = readPreviousItemsJson(itemsJsonPath);
+
     const entries = buildItemCatalogEntries(results, {
       idPrefix: `s${studentNumber}`,
       imageDirPath: `assets/students/${studentNumber}/items`,
+      previousEntries,
     });
     writeItemsJson(itemsJsonPath, entries);
     console.log(`    -> items.json 갱신 (${entries.length}개 아이템)`);
