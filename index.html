@@ -49,6 +49,9 @@
           <!-- #world: 방/통로/광장/표지판을 담는 거대한 월드. 카메라 이동은 이 요소의 transform으로 처리합니다. -->
           <div id="world"></div>
 
+          <!-- 전체 마을 보기 전용 이름표 레이어. #world 밖에 있어서 줌아웃해도 글자 크기가 줄어들지 않습니다. -->
+          <div id="overview-labels" hidden></div>
+
           <!-- 플레이어 슬라임: 항상 game-stage 기준으로 좌표를 계산해 배치합니다. -->
           <div id="player">
             <div class="slime">
@@ -62,7 +65,10 @@
           <div id="hud">
             <div id="hud-name">👤 -</div>
             <div id="hud-location">📍 -</div>
-            <button type="button" id="btn-logout">로그아웃</button>
+            <div class="hud-buttons">
+              <button type="button" id="btn-overview">전체 마을 보기</button>
+              <button type="button" id="btn-logout">로그아웃</button>
+            </div>
           </div>
 
           <!-- 모바일/태블릿용 화면 이동키: 왼쪽 아래, 반투명 십자 방향키 -->

@@ -196,6 +196,8 @@ main#game-container {
   top: 0;
   left: 0;
   /* width/height는 js/main.js에서 WORLD_WIDTH / WORLD_HEIGHT 값으로 지정합니다. */
+  /* scale()과 translate3d()를 같이 쓰는 전체 마을 보기 계산이 (0,0) 기준으로 맞도록 고정 */
+  transform-origin: 0 0;
   will-change: transform;
 }
 
@@ -359,10 +361,15 @@ main#game-container {
   color: var(--color-muted);
 }
 
-#btn-logout {
+.hud-buttons {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.hud-buttons button {
   /* #hud 전체는 pointer-events:none(게임 화면을 가리지 않도록)이라, 버튼만 다시 켜준다. */
   pointer-events: auto;
-  margin-top: 6px;
   padding: 3px 10px;
   border: none;
   border-radius: 999px;
@@ -370,10 +377,21 @@ main#game-container {
   color: var(--color-text);
   font-size: 0.75rem;
   cursor: pointer;
+  white-space: nowrap;
 }
 
-#btn-logout:hover {
+.hud-buttons button:hover {
   background-color: rgba(43, 43, 43, 0.2);
+}
+
+#btn-overview {
+  background-color: rgba(76, 175, 125, 0.22);
+  color: var(--color-primary-dark);
+  font-weight: 700;
+}
+
+#btn-overview:hover {
+  background-color: rgba(76, 175, 125, 0.35);
 }
 
 /* ---------- 화면 이동키 (모바일/태블릿/전자칠판용 십자 방향키) ---------- */
@@ -521,4 +539,39 @@ main#game-container {
 
 #login-submit:hover {
   background-color: var(--color-primary-dark);
+}
+
+/* =========================================================
+   전체 마을 보기 (관람 전용 줌아웃 화면)
+   ========================================================= */
+
+/* 전체 마을 보기 중에는 화면 이동키를 아예 숨겨서, 눌러도 아무 반응이 없는
+   상태를 보여주는 대신 "지금은 이동할 수 없다"는 것을 한눈에 알 수 있게 한다. */
+#game-stage.overview-active #dpad {
+  display: none;
+}
+
+#overview-labels {
+  position: absolute;
+  inset: 0;
+  z-index: 6; /* #world 위, HUD/이동키(z-index 10)보다는 아래 */
+  pointer-events: none;
+}
+
+.overview-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 2px 8px;
+  background-color: rgba(255, 255, 255, 0.85);
+  color: var(--color-text);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.overview-label.plaza {
+  background-color: #e0b34d;
+  color: #4a3210;
 }

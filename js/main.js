@@ -102,6 +102,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
   worldEl.appendChild(fragment);
 
+  // 전체 마을 보기 전용 이름표. #world 안에 두면 줌아웃 배율만큼 글자도 같이 작아져
+  // 안 보이게 되므로, 화면 배율의 영향을 받지 않는 #overview-labels(별도 레이어)에 만들어둔다.
+  // 평소에는 컨테이너 자체가 숨겨져 있고, 전체 마을 보기에 들어갈 때만 위치를 계산해 배치한다.
+  const overviewLabelsEl = document.getElementById("overview-labels");
+  const overviewLabelFragment = document.createDocumentFragment();
+
+  const roomLabels = rooms.map((room) => {
+    const labelEl = document.createElement("div");
+    labelEl.className = room.isPlaza ? "overview-label plaza" : "overview-label";
+    labelEl.textContent = room.isPlaza ? "🏛 마을 광장" : room.name;
+    overviewLabelFragment.appendChild(labelEl);
+    return { room, el: labelEl };
+  });
+
+  overviewLabelsEl.appendChild(overviewLabelFragment);
+
   // ---------------------------------------------------------
   // 3. DOM 참조
   // ---------------------------------------------------------
@@ -117,13 +133,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const loginPinEl = document.getElementById("login-pin");
   const loginErrorEl = document.getElementById("login-error");
   const logoutBtnEl = document.getElementById("btn-logout");
+  const overviewBtnEl = document.getElementById("btn-overview");
 
   // ---------------------------------------------------------
   // 4. 플레이어 / 카메라 상태
   // ---------------------------------------------------------
   // 실제 시작 좌표는 로그인에 성공했을 때 placePlayerForAccount()가 채워 넣는다.
   const player = { x: 0, y: 0, facingLeft: false, moving: false };
-  const camera = { x: 0, y: 0 };
+  const camera = { x: 0, y: 0, scale: 1 }; // scale은 평소 1, 전체 마을 보기에서만 줄어든다.
+
+  // 전체 마을 보기(관람 전용) 상태. 켜져 있는 동안은 이동 입력을 전부 무시한다.
+  let overviewMode = false;
+  let savedCamera = null; // 돌아가기를 눌렀을 때 복원할, 전체 마을 보기 이전의 카메라 상태
 
   function getClampedCamera(targetX, targetY) {
     const viewW = stageEl.clientWidth;
@@ -135,6 +156,22 @@ document.addEventListener("DOMContentLoaded", () => {
     return {
       x: Math.min(Math.max(targetX - viewW / 2, 0), maxX),
       y: Math.min(Math.max(targetY - viewH / 2, 0), maxY),
+    };
+  }
+
+  // 전체 마을(4x5 + 통로)이 여백을 두고 화면 안에 전부 들어오도록 축소 배율과
+  // 카메라 위치를 계산한다. (일반 카메라와 달리 scale이 1이 아닐 수 있음)
+  function computeOverviewCamera() {
+    const viewW = stageEl.clientWidth;
+    const viewH = stageEl.clientHeight;
+    const FIT_MARGIN = 0.9; // 화면 가장자리에 딱 붙지 않도록 10% 여백을 둔다.
+
+    const scale = Math.min(viewW / WORLD_W, viewH / WORLD_H) * FIT_MARGIN;
+
+    return {
+      scale,
+      x: WORLD_W / 2 - viewW / (2 * scale),
+      y: WORLD_H / 2 - viewH / (2 * scale),
     };
   }
 
@@ -182,8 +219,10 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("keydown", (e) => {
     const dir = resolveDirection(e);
     if (dir) {
-      keyboardPressed.add(dir);
-      e.preventDefault(); // 방향키로 페이지가 스크롤되는 것 방지
+      e.preventDefault(); // 방향키로 페이지가 스크롤되는 것 방지 (전체 마을 보기 중에도 동일)
+      if (!overviewMode) {
+        keyboardPressed.add(dir);
+      }
     }
   });
 
@@ -236,6 +275,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const press = (e) => {
         e.preventDefault();
+        if (overviewMode) return; // 전체 마을 보기(관람 전용) 중에는 화면 이동키도 무시한다.
+
         activePointerIds.add(e.pointerId);
         // 포인터를 캡처해서, 버튼 밖으로 손가락이 살짝 밀려도 손을 뗄 때까지는 계속 눌린 상태로 인식한다.
         if (btn.setPointerCapture) {
@@ -324,12 +365,28 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function render() {
-    worldEl.style.transform = `translate3d(${-camera.x}px, ${-camera.y}px, 0)`;
+    // scale을 translate보다 뒤에 적용해 "월드 좌표 - 카메라" 만큼 이동한 다음 배율을 곱하는
+    // 순서가 되도록 한다 (World transform-origin: 0 0 기준). 평소(scale=1)에는 기존과 동일하게 동작한다.
+    worldEl.style.transform = `scale(${camera.scale}) translate3d(${-camera.x}px, ${-camera.y}px, 0)`;
 
-    playerEl.style.left = `${player.x - camera.x}px`;
-    playerEl.style.top = `${player.y - camera.y}px`;
+    playerEl.style.left = `${(player.x - camera.x) * camera.scale}px`;
+    playerEl.style.top = `${(player.y - camera.y) * camera.scale}px`;
     playerEl.classList.toggle("facing-left", player.facingLeft);
     playerEl.classList.toggle("moving", player.moving);
+
+    if (overviewMode) {
+      renderOverviewLabels();
+    }
+  }
+
+  // 각 이름표를 방 중심의 화면 좌표(줌아웃 배율 반영)로 옮겨준다.
+  function renderOverviewLabels() {
+    roomLabels.forEach(({ room, el }) => {
+      const centerX = (room.x + room.w / 2 - camera.x) * camera.scale;
+      const centerY = (room.y + room.h / 2 - camera.y) * camera.scale;
+      el.style.left = `${centerX}px`;
+      el.style.top = `${centerY}px`;
+    });
   }
 
   function loop(timestamp) {
@@ -356,6 +413,74 @@ document.addEventListener("DOMContentLoaded", () => {
       rafId = null;
     }
   }
+
+  // ---------------------------------------------------------
+  // 7-1. 전체 마을 보기 (관람 전용 - 이동/조작 모두 비활성화)
+  // ---------------------------------------------------------
+  function enterOverview() {
+    if (overviewMode) return;
+    overviewMode = true;
+
+    // 지금 누르고 있던 키/터치가 남아있으면 전체 마을 보기에서 빠져나올 때
+    // 갑자기 이동해버릴 수 있으므로 모두 비워둔다.
+    keyboardPressed.clear();
+    touchPressed.clear();
+
+    // 돌아가기를 눌렀을 때 그대로 복원할 수 있도록 현재 카메라 상태만 저장한다.
+    // (플레이어는 전체 마을 보기 중에 절대 움직이지 않으므로 별도로 저장할 필요가 없다.)
+    savedCamera = { x: camera.x, y: camera.y };
+
+    // 게임 루프 자체를 멈춘다 - 전체 마을 보기는 정적인 화면이라 계속 갱신할 것이 없고,
+    // 루프가 돌고 있으면 카메라가 다시 플레이어를 따라가려고 해서 화면이 흔들리게 된다.
+    stopLoop();
+
+    const overview = computeOverviewCamera();
+    camera.x = overview.x;
+    camera.y = overview.y;
+    camera.scale = overview.scale;
+
+    playerEl.style.display = "none"; // 관람 모드에서는 플레이어 슬라임을 표시하지 않는다.
+    overviewLabelsEl.hidden = false;
+
+    stageEl.classList.add("overview-active");
+    overviewBtnEl.textContent = "돌아가기";
+
+    hudLocationEl.textContent = "🗺️ 전체 마을 보기 (관람 모드)";
+
+    render();
+  }
+
+  function exitOverview() {
+    if (!overviewMode) return;
+    overviewMode = false;
+
+    if (savedCamera) {
+      camera.x = savedCamera.x;
+      camera.y = savedCamera.y;
+    }
+    camera.scale = 1;
+    savedCamera = null;
+
+    playerEl.style.display = "";
+    overviewLabelsEl.hidden = true;
+
+    stageEl.classList.remove("overview-active");
+    overviewBtnEl.textContent = "전체 마을 보기";
+
+    lastLocationLabel = ""; // 강제로 다시 계산해서 원래 위치 문구로 되돌린다.
+    updateLocationLabel();
+
+    render();
+    startLoop();
+  }
+
+  overviewBtnEl.addEventListener("click", () => {
+    if (overviewMode) {
+      exitOverview();
+    } else {
+      enterOverview();
+    }
+  });
 
   // ---------------------------------------------------------
   // 8. 로그인 흐름 (임시 프론트엔드 계정 - js/accounts.js)
@@ -401,6 +526,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function exitToLogin() {
+    // 전체 마을 보기 중에 로그아웃하는 경우를 대비해, 관람 모드 관련 화면 상태도 확실히 되돌린다.
+    if (overviewMode) {
+      overviewMode = false;
+      savedCamera = null;
+      camera.scale = 1;
+      playerEl.style.display = "";
+      overviewLabelsEl.hidden = true;
+      stageEl.classList.remove("overview-active");
+      overviewBtnEl.textContent = "전체 마을 보기";
+    }
+
     stopLoop();
 
     keyboardPressed.clear();
