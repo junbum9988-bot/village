@@ -8,76 +8,29 @@
  *   정지 WebP가 된다).
  * - 이미 같은 이름의 .webp 파일이 items 폴더에 있으면 덮어쓴다.
  *
+ * 실제 변환 로직은 scripts/lib/convert-images.js에 있다 (학생용 변환 스크립트인
+ * scripts/convert-students-assets.js와 공유). 이 스크립트는 관리자 폴더 경로를 정하고
+ * 결과를 출력하는 역할만 한다. items.json은 만들지 않는다 - assets/admin/items/items.json은
+ * 수작업으로 이름/크기를 정리해 관리하는 파일이라 자동 생성 대상이 아니다.
+ *
  * 실행: npm run convert:admin  (내부적으로 node scripts/convert-admin-assets.js 실행)
  */
 
-const fs = require("fs");
 const path = require("path");
-const sharp = require("sharp");
+const { listConvertibleFiles, convertImagesInDir } = require("./lib/convert-images");
 
 const ROOT_DIR = path.join(__dirname, "..");
 const SOURCE_DIR = path.join(ROOT_DIR, "assets", "admin", "original");
 const OUTPUT_DIR = path.join(ROOT_DIR, "assets", "admin", "items");
 
-// 변환 대상 확장자 (대소문자 구분 없이 비교)
-const SUPPORTED_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif"]);
-
-// 정지 이미지(png/jpg/jpeg)용 WebP 품질. 웹게임 아이템 그림 용도로 충분히 선명하면서
-// 용량은 크지 않도록 82로 설정 (sharp 기본값 80보다 살짝 높임).
-const STATIC_QUALITY = 82;
-
-// 애니메이션(gif -> animated webp)용 품질. 프레임이 여러 장 쌓이면 용량이 금방 커지므로
-// 정지 이미지보다 살짝 낮춰서 75로 설정.
-const ANIMATED_QUALITY = 75;
-
-// 인코딩 노력(0~6). 높을수록 용량은 줄지만 변환 시간이 늘어난다. sharp 기본값(4)이
-// 품질/속도 균형이 적당해 그대로 사용한다.
-const ENCODE_EFFORT = 4;
-
-function formatBytes(bytes) {
-  if (bytes < 1024) return `${bytes} B`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
-  return `${(kb / 1024).toFixed(2)} MB`;
-}
-
-async function convertFile(fileName) {
-  const ext = path.extname(fileName).toLowerCase();
-  const baseName = path.basename(fileName, path.extname(fileName));
-  const sourcePath = path.join(SOURCE_DIR, fileName);
-  const outputPath = path.join(OUTPUT_DIR, `${baseName}.webp`);
-
-  const isGif = ext === ".gif";
-
-  // GIF는 animated: true로 읽어야 모든 프레임을 가져와서, 출력할 때도 애니메이션이
-  // 유지된 WebP로 저장된다. sourcePath는 읽기 전용으로만 사용하고 절대 다시 쓰지 않는다.
-  const image = isGif ? sharp(sourcePath, { animated: true }) : sharp(sourcePath);
-
-  await image
-    .webp({
-      quality: isGif ? ANIMATED_QUALITY : STATIC_QUALITY,
-      effort: ENCODE_EFFORT,
-    })
-    .toFile(outputPath); // 출력은 항상 assets/admin/items 쪽에만 저장 (덮어쓰기 허용)
-
-  const { size } = fs.statSync(outputPath);
-  return { fileName, outputName: path.basename(outputPath), size, animated: isGif };
-}
-
 async function main() {
-  if (!fs.existsSync(SOURCE_DIR)) {
+  const targetFiles = listConvertibleFiles(SOURCE_DIR);
+
+  if (targetFiles === null) {
     console.error(`원본 폴더가 없습니다: ${SOURCE_DIR}`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
-
-  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-
-  const entries = fs.readdirSync(SOURCE_DIR, { withFileTypes: true });
-  const targetFiles = entries
-    .filter((entry) => entry.isFile())
-    .map((entry) => entry.name)
-    .filter((name) => SUPPORTED_EXTENSIONS.has(path.extname(name).toLowerCase()))
-    .sort();
 
   if (targetFiles.length === 0) {
     console.log(`변환할 이미지가 없습니다 (${SOURCE_DIR} 안에 PNG/JPG/JPEG/GIF 없음).`);
@@ -86,20 +39,7 @@ async function main() {
 
   console.log(`변환 대상 ${targetFiles.length}개 파일 발견 (${SOURCE_DIR})`);
 
-  const results = [];
-  const failures = [];
-
-  for (const fileName of targetFiles) {
-    try {
-      const result = await convertFile(fileName);
-      results.push(result);
-      const tag = result.animated ? "animated webp" : "webp";
-      console.log(`  ✔ ${fileName} -> ${result.outputName} (${tag}, ${formatBytes(result.size)})`);
-    } catch (err) {
-      failures.push({ fileName, error: err });
-      console.error(`  ✘ ${fileName} 변환 실패: ${err.message}`);
-    }
-  }
+  const { results, failures } = await convertImagesInDir(SOURCE_DIR, OUTPUT_DIR, { logPrefix: "  " });
 
   console.log("");
   console.log(`완료: ${results.length}개 성공, ${failures.length}개 실패`);
@@ -110,7 +50,13 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error("예상치 못한 오류로 변환을 중단합니다:", err);
-  process.exit(1);
-});
+module.exports = { main };
+
+// `node scripts/convert-admin-assets.js`로 직접 실행했을 때만 바로 돈다. convert-all-assets.js처럼
+// 다른 스크립트가 require()해서 main()을 직접 호출하는 경우에는 여기서 다시 실행되지 않는다.
+if (require.main === module) {
+  main().catch((err) => {
+    console.error("예상치 못한 오류로 변환을 중단합니다:", err);
+    process.exitCode = 1;
+  });
+}
