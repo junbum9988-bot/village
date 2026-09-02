@@ -623,6 +623,14 @@ document.addEventListener("DOMContentLoaded", () => {
     refreshHudControls();
 
     render();
+
+    // 위 render()가 #world의 transform을 바꾸자마자, will-change가 꺼진 채로(css/style.css의
+    // #game-stage.overview-active #world 규칙) 레이아웃을 한 번 강제로 읽어서 리플로우를
+    // 유도한다. 일부 모바일 기종에서 새로 드러난 영역(그동안 화면에 없던 방들)이 곧바로
+    // 다시 그려지지 않는 경우를 보완하기 위한 최소한의 보조 처리다. 값 자체는 쓰지 않고
+    // "읽기"만으로 브라우저가 강제로 레이아웃/페인트를 동기적으로 처리하게 만드는 게 목적이다.
+    // eslint-disable-next-line no-unused-expressions
+    void worldEl.offsetHeight;
   }
 
   function exitOverview() {

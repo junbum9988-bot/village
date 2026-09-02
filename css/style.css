@@ -285,7 +285,22 @@ main#game-container {
   /* width/height는 js/main.js에서 WORLD_WIDTH / WORLD_HEIGHT 값으로 지정합니다. */
   /* scale()과 translate3d()를 같이 쓰는 전체 마을 보기 계산이 (0,0) 기준으로 맞도록 고정 */
   transform-origin: 0 0;
+  /* 평소(일반 플레이 중 카메라가 매 프레임 움직일 때)에는 GPU 레이어로 미리 승격해둬야 부드럽다. */
   will-change: transform;
+}
+
+/* 전체 마을 보기 중에는 will-change를 끈다 (js/main.js가 #game-stage에 overview-active를
+   붙이고 뗄 때 같이 적용/해제됨).
+   이유: #world는 5460x3200px짜리 큰 요소라, will-change로 GPU 레이어로 승격되면 브라우저가
+   기기 배율(devicePixelRatio)까지 곱한 크기의 텍스처를 준비하려고 한다. 일부 모바일 GPU는
+   텍스처 한 변의 최대 크기가 이보다 작아서, 그 한계를 넘는 먼 영역(플레이어가 있던 곳에서
+   먼 방)이 제때 다시 그려지지 못하고 빈 채로 남는 경우가 있었다(전체 마을 보기에서 일부
+   방 배경만 안 보이는 문제).
+   전체 마을 보기는 카메라가 멈춘 정적 화면(진입 시 게임 루프 자체를 정지함)이라 will-change로
+   얻는 성능 이득이 없으므로, 이 상태에서는 꺼서 브라우저가 일반적인 방식으로 다시 그리게 한다.
+   일반 플레이 화면(카메라 이동/줌)에는 이 규칙이 적용되지 않으므로 성능에 영향이 없다. */
+#game-stage.overview-active #world {
+  will-change: auto;
 }
 
 /* ---------- 개인 공간 / 광장 (바닥) ---------- */
