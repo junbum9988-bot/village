@@ -29,3 +29,7 @@ assets/students/01/
 학생 수가 늘어나면 같은 규칙으로 `19`, `20` ... 폴더를 추가하면 됩니다.
 
 관리자용 에셋은 `assets/admin/`을 참고하세요 (같은 `original/` / `items/` 구조).
+
+이 폴더(그리고 `assets/admin/`)는 **첫 번째 마을**(village-1, 접속 코드 T00/S01~S18) 전용입니다.
+두 번째 마을(village-2, 접속 코드 B00~B18) 에셋은 서로 섞이지 않도록 `assets/village2/`라는
+별도 폴더에 있습니다 - 자세한 내용은 `assets/village2/README.md` 참고.

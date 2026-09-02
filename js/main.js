@@ -20,10 +20,12 @@
  *   - 전체 마을 보기    : 카메라를 줌아웃해 지금 마을(4x5) 전체를 보여주는 관람 전용 모드 (이동/조작 비활성)
  *   - 꾸미기 모드       : 자기 공간에서만 켤 수 있는 관람 전용 아님 모드. 이동은 멈추고 인벤토리에서
  *                        아이템을 골라 배치/이동/크기조절/삭제할 수 있다.
- *                        관리자(T00)와 학생(S01~S18) 계정은 각자 공통 아이템에 더해
- *                        assets/admin/items/items.json, assets/students/<번호>/items/items.json
- *                        에서 불러온 전용 아이템도 함께 보인다 (계정별 경로는 getPersonalItemsPath).
- *                        두 번째 마을 계정은 아직 전용 items.json이 없어 공통 아이템만 보인다.
+ *                        모든 마을의 관리자/학생 계정은 각자 공통 아이템에 더해 전용 items.json에서
+ *                        불러온 전용 아이템도 함께 보인다 (계정별 경로는 getPersonalItemsPath).
+ *                        - village-1(T00, S01~S18): assets/admin/, assets/students/<번호>/
+ *                        - village-2(B00, B01~B18): assets/village2/admin/, assets/village2/students/<번호>/
+ *                        아직 실제 items.json 파일이 없는 계정은 파일을 못 찾아 조용히 공통
+ *                        아이템만 보이는 상태로 남는다 (loadPersonalItemCatalog가 404를 정상 처리).
  *   - Supabase 연동    : 배치된 아이템(placedItems)을 Supabase의 placed_items 테이블에 저장한다.
  *                        모든 행은 village_id 컬럼으로 마을을 구분하고, 로그인하면 그 계정의 마을에
  *                        속한 행만 불러와 렌더링한 뒤 그 마을로 필터링된 Realtime 채널만 구독한다
@@ -712,6 +714,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // 접속 코드에서 숫자 부분만 뽑아 assets/students/<두 자리 번호>/items/items.json 경로를
   // 그대로 만들어낸다 (S1, S01 등 자릿수가 달라도 항상 두 자리로 맞춘다).
   // 관리자/학생이 아니거나 코드 형식이 안 맞으면 전용 카탈로그가 없다는 뜻으로 null을 반환한다.
+  //
+  // 두 번째 마을(village-2, 접속 코드 B00~B18)은 첫 번째 마을과 에셋이 섞이면 안 되므로
+  // assets/village2/ 아래 별도 폴더를 쓴다 (assets/village2/README.md 참고). B00은 관리자,
+  // B01~B18은 학생1~학생18이다 - T/S 계열과 같은 "번호로 폴더를 찾는" 규칙을 그대로 따른다.
   function getPersonalItemsPath(account) {
     if (!account) return null;
 
@@ -720,10 +726,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const code = String(account.code || "").toUpperCase();
+
     const studentMatch = code.match(/^S(\d+)$/);
     if (studentMatch) {
       const studentNumber = studentMatch[1].padStart(2, "0");
       return `assets/students/${studentNumber}/items/items.json`;
+    }
+
+    const village2Match = code.match(/^B(\d+)$/);
+    if (village2Match) {
+      const number = village2Match[1].padStart(2, "0");
+      return number === "00"
+        ? "assets/village2/admin/items/items.json"
+        : `assets/village2/students/${number}/items/items.json`;
     }
 
     return null;

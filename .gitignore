@@ -12,3 +12,9 @@ assets/admin/original/*
 
 assets/students/*/original/*
 !assets/students/*/original/.gitkeep
+
+assets/village2/admin/original/*
+!assets/village2/admin/original/.gitkeep
+
+assets/village2/students/*/original/*
+!assets/village2/students/*/original/.gitkeep
