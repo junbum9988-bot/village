@@ -1,0 +1,18 @@
+[
+  {
+    "id": "b03-1",
+    "name": "__1",
+    "image": "assets/village2/students/03/items/__1.webp",
+    "animated": false,
+    "w": 91,
+    "h": 96
+  },
+  {
+    "id": "b03-1-2",
+    "name": "__________(1)",
+    "image": "assets/village2/students/03/items/__________(1).webp",
+    "animated": false,
+    "w": 96,
+    "h": 94
+  }
+]

@@ -6,7 +6,10 @@
   "scripts": {
     "convert:admin": "node scripts/convert-admin-assets.js",
     "convert:students": "node scripts/convert-students-assets.js",
-    "convert:all": "node scripts/convert-all-assets.js"
+    "convert:all": "node scripts/convert-all-assets.js",
+    "convert:village2:admin": "node scripts/convert-village2-admin-assets.js",
+    "convert:village2:students": "node scripts/convert-village2-students-assets.js",
+    "convert:village2:all": "node scripts/convert-village2-all-assets.js"
   },
   "dependencies": {
     "sharp": "^0.35.4"

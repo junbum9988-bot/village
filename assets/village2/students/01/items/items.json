@@ -1,0 +1,42 @@
+[
+  {
+    "id": "b01-item",
+    "name": "_________",
+    "image": "assets/village2/students/01/items/_________.webp",
+    "animated": false,
+    "w": 87,
+    "h": 96
+  },
+  {
+    "id": "b01-photo",
+    "name": "photo",
+    "image": "assets/village2/students/01/items/photo.webp",
+    "animated": false,
+    "w": 96,
+    "h": 54
+  },
+  {
+    "id": "b01-photo-1",
+    "name": "photo_(1)",
+    "image": "assets/village2/students/01/items/photo_(1).webp",
+    "animated": false,
+    "w": 96,
+    "h": 54
+  },
+  {
+    "id": "b01-photo-2",
+    "name": "photo_(2)",
+    "image": "assets/village2/students/01/items/photo_(2).webp",
+    "animated": false,
+    "w": 96,
+    "h": 54
+  },
+  {
+    "id": "b01-제목-없는-디자인",
+    "name": "제목 없는 디자인",
+    "image": "assets/village2/students/01/items/제목 없는 디자인.webp",
+    "animated": false,
+    "w": 87,
+    "h": 96
+  }
+]

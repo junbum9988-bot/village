@@ -1,0 +1,42 @@
+[
+  {
+    "id": "b02-20c5c358073f660cd377321acb8b8228",
+    "name": "20c5c358073f660cd377321acb8b8228",
+    "image": "assets/village2/students/02/items/20c5c358073f660cd377321acb8b8228.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "b02-img-0051",
+    "name": "IMG_0051",
+    "image": "assets/village2/students/02/items/IMG_0051.webp",
+    "animated": false,
+    "w": 96,
+    "h": 64
+  },
+  {
+    "id": "b02-img-0350",
+    "name": "IMG_0350",
+    "image": "assets/village2/students/02/items/IMG_0350.webp",
+    "animated": false,
+    "w": 68,
+    "h": 96
+  },
+  {
+    "id": "b02-13-20260317103001",
+    "name": "____13_20260317103001",
+    "image": "assets/village2/students/02/items/____13_20260317103001.webp",
+    "animated": false,
+    "w": 96,
+    "h": 64
+  },
+  {
+    "id": "b02-29-20260317105416",
+    "name": "____29_20260317105416",
+    "image": "assets/village2/students/02/items/____29_20260317105416.webp",
+    "animated": false,
+    "w": 96,
+    "h": 72
+  }
+]
