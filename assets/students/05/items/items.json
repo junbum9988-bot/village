@@ -54,5 +54,21 @@
     "animated": false,
     "w": 96,
     "h": 96
+  },
+  {
+    "id": "s05-1000000857",
+    "name": "1000000857",
+    "image": "assets/students/05/items/1000000857.webp",
+    "animated": false,
+    "w": 96,
+    "h": 58
+  },
+  {
+    "id": "s05-1000000860",
+    "name": "1000000860",
+    "image": "assets/students/05/items/1000000860.webp",
+    "animated": false,
+    "w": 96,
+    "h": 58
   }
 ]

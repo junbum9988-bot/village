@@ -40,9 +40,65 @@
     "h": 96
   },
   {
+    "id": "s06-1000000832",
+    "name": "1000000832",
+    "image": "assets/students/06/items/1000000832.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
     "id": "s06-1000000833",
     "name": "1000000833",
     "image": "assets/students/06/items/1000000833.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s06-1000000836",
+    "name": "1000000836",
+    "image": "assets/students/06/items/1000000836.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s06-1000000837",
+    "name": "1000000837",
+    "image": "assets/students/06/items/1000000837.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s06-1000000838",
+    "name": "1000000838",
+    "image": "assets/students/06/items/1000000838.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s06-1000000839",
+    "name": "1000000839",
+    "image": "assets/students/06/items/1000000839.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s06-1000000840",
+    "name": "1000000840",
+    "image": "assets/students/06/items/1000000840.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s06-1000000841",
+    "name": "1000000841",
+    "image": "assets/students/06/items/1000000841.webp",
     "animated": false,
     "w": 96,
     "h": 96

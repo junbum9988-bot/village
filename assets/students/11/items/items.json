@@ -14,5 +14,21 @@
     "animated": false,
     "w": 96,
     "h": 93
+  },
+  {
+    "id": "s11-1000001146",
+    "name": "1000001146",
+    "image": "assets/students/11/items/1000001146.webp",
+    "animated": false,
+    "w": 96,
+    "h": 91
+  },
+  {
+    "id": "s11-1000001155",
+    "name": "1000001155",
+    "image": "assets/students/11/items/1000001155.webp",
+    "animated": false,
+    "w": 48,
+    "h": 96
   }
 ]

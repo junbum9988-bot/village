@@ -1,5 +1,21 @@
 [
   {
+    "id": "s04-1000000977",
+    "name": "1000000977",
+    "image": "assets/students/04/items/1000000977.webp",
+    "animated": true,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s04-1000001019",
+    "name": "1000001019",
+    "image": "assets/students/04/items/1000001019.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
     "id": "s04-1000001021",
     "name": "1000001021",
     "image": "assets/students/04/items/1000001021.webp",
@@ -51,6 +67,14 @@
     "id": "s04-1000001058",
     "name": "1000001058",
     "image": "assets/students/04/items/1000001058.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s04-1000001060",
+    "name": "1000001060",
+    "image": "assets/students/04/items/1000001060.webp",
     "animated": false,
     "w": 96,
     "h": 96

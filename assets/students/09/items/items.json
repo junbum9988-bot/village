@@ -86,5 +86,29 @@
     "animated": false,
     "w": 96,
     "h": 96
+  },
+  {
+    "id": "s09-1000001175",
+    "name": "1000001175",
+    "image": "assets/students/09/items/1000001175.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s09-1000001176",
+    "name": "1000001176",
+    "image": "assets/students/09/items/1000001176.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s09-1000001177",
+    "name": "1000001177",
+    "image": "assets/students/09/items/1000001177.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
   }
 ]

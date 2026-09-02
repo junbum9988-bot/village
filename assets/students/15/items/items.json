@@ -14,5 +14,29 @@
     "animated": false,
     "w": 96,
     "h": 96
+  },
+  {
+    "id": "s15-1000000704",
+    "name": "1000000704",
+    "image": "assets/students/15/items/1000000704.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s15-1000000706",
+    "name": "1000000706",
+    "image": "assets/students/15/items/1000000706.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s15-1000000708",
+    "name": "1000000708",
+    "image": "assets/students/15/items/1000000708.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
   }
 ]

@@ -22,5 +22,21 @@
     "animated": false,
     "w": 96,
     "h": 96
+  },
+  {
+    "id": "s14-1000000276",
+    "name": "1000000276",
+    "image": "assets/students/14/items/1000000276.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s14-1000000277",
+    "name": "1000000277",
+    "image": "assets/students/14/items/1000000277.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
   }
 ]

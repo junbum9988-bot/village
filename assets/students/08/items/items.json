@@ -62,5 +62,37 @@
     "animated": false,
     "w": 96,
     "h": 96
+  },
+  {
+    "id": "s08-1000000865",
+    "name": "1000000865",
+    "image": "assets/students/08/items/1000000865.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s08-1000000866",
+    "name": "1000000866",
+    "image": "assets/students/08/items/1000000866.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s08-1000000867",
+    "name": "1000000867",
+    "image": "assets/students/08/items/1000000867.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s08-1000000868",
+    "name": "1000000868",
+    "image": "assets/students/08/items/1000000868.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
   }
 ]
