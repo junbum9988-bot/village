@@ -18,8 +18,10 @@
  *   - 입력 처리        : 방향키 / WASD / 화면 터치 방향키 입력 수집 (로그인 여부와 무관하게 항상 리스닝)
  *   - 게임 루프        : 로그인에 성공했을 때만 실행 (update → 이동/카메라, render → 화면 반영)
  *   - 전체 마을 보기    : 카메라를 줌아웃해 지금 마을(4x5) 전체를 보여주는 관람 전용 모드 (이동/조작 비활성)
- *   - 꾸미기 모드       : 자기 공간에서만 켤 수 있는 관람 전용 아님 모드. 이동은 멈추고 인벤토리에서
- *                        아이템을 골라 배치/이동/크기조절/삭제할 수 있다.
+ *   - 꾸미기 모드       : 자기 공간(학생/관리자 공통)에서, 그리고 관리자는 추가로 도로(마을 길)와
+ *                        광장 어디서든 켤 수 있는 관람 전용 아님 모드 (canDecorateRoads -
+ *                        js/accounts.js의 role:"admin" 기준). 이동은 멈추고 인벤토리에서 아이템을
+ *                        골라 배치/이동/크기조절/삭제할 수 있다.
  *                        모든 마을의 관리자/학생 계정은 각자 공통 아이템에 더해 전용 items.json에서
  *                        불러온 전용 아이템도 함께 보인다 (계정별 경로는 getPersonalItemsPath).
  *                        - village-1(T00, S01~S18): assets/admin/, assets/students/<번호>/
@@ -33,6 +35,11 @@
  *                        드래그 중간값/캐릭터 위치는 절대 보내지 않고, "손을 놓는 순간"처럼 결과가
  *                        확정되는 시점에만 1회 INSERT/UPDATE/DELETE한다. Supabase 연결이 안 되거나
  *                        요청이 실패해도 로컬 조작 자체는 계속 동작한다.
+ *                        location_type 컬럼으로 room_x/room_y의 의미가 갈린다: "room"(기본값)은
+ *                        기존과 같이 owner의 방 기준 상대좌표, "path"/"plaza"(관리자가 도로·광장에
+ *                        놓은 아이템)는 월드 절대좌표를 그대로 저장한다 - 도로/광장은 계정마다
+ *                        고정된 방 같은 기준점이 없기 때문이다
+ *                        (computeStoredPosition/buildInstanceFromRow/handleRemoteUpdate).
  *   - 로그인 흐름       : 접속 코드+PIN 검사, 성공 시 해당 계정의 마을·공간에서 게임 시작, 로그아웃
  *                        시 그 마을의 Realtime 구독을 정리하고 로그인 화면으로 복귀
  */
@@ -85,6 +92,59 @@ document.addEventListener("DOMContentLoaded", () => {
   const PLAYER_SPEED = 300; // px / sec
   const PLAYER_RADIUS = 18; // 월드 경계 충돌에 사용하는 반지름
   const CAMERA_TAU = 0.15; // 카메라가 목표 위치를 따라가는 부드러움 정도(초). 작을수록 빠르게 따라붙음.
+
+  // ---------------------------------------------------------
+  // 1-1a. 통로(마을 길) 칸 나누기 - 관리자가 도로에도 아이템을 놓을 수 있게 하기 위함
+  // ---------------------------------------------------------
+  // rooms 배열은 "방/광장"만 담고 있어서, 방이 아닌 곳(마을 길)에서 아이템을 놓으려면 그
+  // 자리를 감싸는 사각형이 하나 더 필요하다. ROOM_W/PATH_W/COLS/ROWS는 모든 마을이 공유하는
+  // 값이라, 통로 칸의 경계도 마을과 무관하게 한 번만 계산해두면 된다.
+  //
+  // 가로축을 예로 들면 [통로, 방, 통로, 방, 통로, 방, 통로, 방, 통로, 방, 통로] 순서로
+  // COLS(5)개의 "방 칸"과 COLS+1(6)개의 "통로 칸"이 번갈아 나타난다. buildAxisBoundaries는
+  // 이 칸들의 경계선 좌표를 전부 배열로 만든다 - 짝수 인덱스 구간은 통로, 홀수 인덱스 구간은 방이다.
+  function buildAxisBoundaries(cellCount, cellSize, gapSize) {
+    const boundaries = [0];
+    for (let i = 0; i < cellCount; i++) {
+      boundaries.push(boundaries[boundaries.length - 1] + gapSize); // 통로 구간 끝 = 방 구간 시작
+      boundaries.push(boundaries[boundaries.length - 1] + cellSize); // 방 구간 끝 = 다음 통로 구간 시작
+    }
+    boundaries.push(boundaries[boundaries.length - 1] + gapSize); // 마지막 바깥 둘레 통로
+    return boundaries;
+  }
+
+  const COL_BOUNDARIES = buildAxisBoundaries(COLS, ROOM_W, PATH_W);
+  const ROW_BOUNDARIES = buildAxisBoundaries(ROWS, ROOM_H, PATH_W);
+
+  // v가 boundaries로 나뉜 구간 중 몇 번째 구간에 속하는지 찾는다 (0-indexed).
+  function findAxisSegmentIndex(boundaries, v) {
+    for (let i = 0; i < boundaries.length - 1; i++) {
+      if (v < boundaries[i + 1]) return i;
+    }
+    return boundaries.length - 2; // v가 세계 끝 경계와 정확히 같을 때를 위한 안전장치
+  }
+
+  // 월드 좌표(x, y)가 방/광장이 아닌 통로(마을 길) 위에 있으면, 그 통로 칸 하나를 감싸는
+  // 사각형을 rooms의 항목과 같은 모양({x,y,w,h,name,isPlaza})으로 돌려준다. 방/광장 안이면 null -
+  // 그 경우는 이미 rooms.find로 찾을 수 있으므로 이 함수를 쓸 필요가 없다.
+  // isPath:true로 표시해서, 실제 rooms 배열의 항목(named room)과 구분할 수 있게 한다.
+  function getPathCellAt(x, y) {
+    const colIndex = findAxisSegmentIndex(COL_BOUNDARIES, x);
+    const rowIndex = findAxisSegmentIndex(ROW_BOUNDARIES, y);
+    const isRoomCell = colIndex % 2 === 1 && rowIndex % 2 === 1; // 홀수 x 홀수 = 방 칸
+
+    if (isRoomCell) return null;
+
+    return {
+      x: COL_BOUNDARIES[colIndex],
+      y: ROW_BOUNDARIES[rowIndex],
+      w: COL_BOUNDARIES[colIndex + 1] - COL_BOUNDARIES[colIndex],
+      h: ROW_BOUNDARIES[rowIndex + 1] - ROW_BOUNDARIES[rowIndex],
+      name: "마을 길",
+      isPlaza: false,
+      isPath: true,
+    };
+  }
 
   // ---------------------------------------------------------
   // 1-1. 꾸미기 아이템 카탈로그
@@ -494,9 +554,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const room = getCurrentRoomOrNull();
 
-    if (!currentAccount || !room || room.isPlaza) {
-      // 마을 길과 광장은 이번 단계에서는 꾸미기 비활성 (버튼도, "구경 중" 표시도 없음)
+    if (!currentAccount) {
       btnDecorateEl.hidden = true;
+      decorateStatusEl.hidden = true;
+    } else if (!room) {
+      // 방/광장이 아닌 마을 길: 관리자만 꾸밀 수 있다 ("구경 중" 표시는 하지 않는다 -
+      // 학생에게는 원래도 통로에서 꾸미기라는 개념 자체가 없었으므로).
+      btnDecorateEl.hidden = !canDecorateRoads(currentAccount);
+      decorateStatusEl.hidden = true;
+    } else if (room.isPlaza) {
+      // 광장도 도로와 같은 이유로 관리자만 꾸밀 수 있다 (학생은 여기서도 "구경 중" 표시 없음).
+      btnDecorateEl.hidden = !canDecorateRoads(currentAccount);
       decorateStatusEl.hidden = true;
     } else if (room.name === currentAccount.name) {
       btnDecorateEl.hidden = false;
@@ -688,7 +756,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const ITEM_SCALE_STEP = 0.15;
 
   let decorateMode = false;
-  let activeRoomForDecorate = null; // 꾸미기 모드에 들어갈 때의 "내 방" (모드가 켜져 있는 동안 고정)
+  // 꾸미기 모드에 들어갈 때 고정되는 "꾸미는 중인 구역" - 자기 방이거나(rooms의 항목), 관리자가
+  // 도로에서 들어간 경우엔 getPathCellAt()이 만든 통로 칸(isPath:true)이다. 모드가 켜져 있는 동안 고정.
+  let activeRoomForDecorate = null;
   let selectedItem = null;
   let nextInstanceId = 1;
   let nextZ = 1; // 다음에 놓일 아이템의 쌓임 순서. Supabase에서 불러온 뒤 그 최댓값+1로 복원된다.
@@ -706,8 +776,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 지금은 접속 코드가 "T"로 시작하면(교사/관리자용, 현재는 T00 하나뿐) 관리자로 취급한다.
   // accounts.js에 관리자가 늘어나도 코드 접두사 규칙만 지키면 이 함수를 바꿀 필요가 없다.
+  // 주의: 이 함수는 "전용 items.json 경로가 assets/admin/ 인가"만 판단한다 (village-1 전용
+  // 규칙). 마을과 무관하게 "이 계정이 관리자라서 도로도 꾸밀 수 있는가"는 canDecorateRoads를
+  // 쓴다 - village-2의 관리자(B00)는 코드가 "T"로 시작하지 않아 이 함수는 false를 주지만,
+  // role 필드로는 정확히 admin으로 판별된다.
   function isAdminAccount(account) {
     return !!account && String(account.code || "").toUpperCase().startsWith("T");
+  }
+
+  // 이 계정이 지금 로그인해 있는 마을의 관리자라서, 자기 공간뿐 아니라 도로(마을 길)와
+  // 광장에도 아이템을 놓을 수 있는지 판단한다 (함수 이름은 "도로"지만 광장 판단에도 그대로
+  // 쓴다 - "학생의 자기 방이 아닌 공용 구역"이라는 의미는 둘 다 같다). js/accounts.js의
+  // role 필드(admin/student)만 본다 - 코드 접두사(T/S/B)와는 무관하므로 마을이 늘어나도
+  // 그대로 쓸 수 있다.
+  function canDecorateRoads(account) {
+    return !!account && account.role === "admin";
   }
 
   // 계정의 전용 items.json 경로를 규칙으로 계산한다. 학생 코드는 S01~S18을 하드코딩하지 않고,
@@ -912,7 +995,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // 손을 뗀 순간, 실제로 옮겼을 때만 최종 위치 하나로 Supabase UPDATE 1회를 보낸다.
         if (moved) {
-          const { room_x, room_y } = toRoomRelative(instance, activeRoomForDecorate);
+          const { room_x, room_y } = computeStoredPosition(instance, activeRoomForDecorate);
           updatePlacedItemRemote(instance, { room_x, room_y });
         }
       };
@@ -942,6 +1025,10 @@ document.addEventListener("DOMContentLoaded", () => {
       // 잘못된 값이어도 buildVillageWorld가 이미 currentVillageId를 안전한 값으로 정규화해뒀으므로
       // 이쪽을 쓴다.
       village: currentVillageId,
+      // "room"(자기 방 기준 상대좌표로 저장), "path"(도로), "plaza"(광장) - 뒤의 둘은 owner의
+      // 방과 무관한 절대좌표로 저장한다(computeStoredPosition 참고). activeRoomForDecorate가
+      // getPathCellAt()이 만든 통로 칸이면 isPath:true, rooms의 광장 항목이면 isPlaza:true다.
+      locationType: room.isPath ? "path" : room.isPlaza ? "plaza" : "room",
       x: room.x + room.w / 2 + jitterX,
       y: room.y + room.h / 2 + jitterY,
       scale: 1,
@@ -1014,10 +1101,22 @@ document.addEventListener("DOMContentLoaded", () => {
     if (isMovementLocked() || !currentAccount) return;
 
     const room = getCurrentRoomOrNull();
-    if (!room || room.isPlaza || room.name !== currentAccount.name) return; // 버튼이 숨겨져 있어 보통은 여기 안 옴 (방어적 처리)
+
+    // 어느 구역을 꾸밀지 결정한다: 자기 방이면 그 방, 광장이면(관리자만) 광장 전체, 방/광장이
+    // 아닌 마을 길이면(관리자만) 지금 서 있는 통로 칸. 그 외(남의 방, 학생이 서 있는 도로/광장)는
+    // 꾸밀 수 없다 - 버튼 자체가 숨겨져 있어 보통은 여기 안 오지만, 혹시 몰라 한 번 더 확인한다.
+    let decorateZone = null;
+    if (room && room.isPlaza) {
+      if (canDecorateRoads(currentAccount)) decorateZone = room;
+    } else if (room) {
+      if (room.name === currentAccount.name) decorateZone = room;
+    } else if (canDecorateRoads(currentAccount)) {
+      decorateZone = getPathCellAt(player.x, player.y);
+    }
+    if (!decorateZone) return;
 
     decorateMode = true;
-    activeRoomForDecorate = room;
+    activeRoomForDecorate = decorateZone;
 
     // 꾸미기 중에는 이동이 완전히 멈춰야 하므로, 게임 루프도 전체 마을 보기와 같은 방식으로 정지한다.
     keyboardPressed.clear();
@@ -1178,23 +1277,44 @@ document.addEventListener("DOMContentLoaded", () => {
     return { x: room.x + roomX, y: room.y + roomY };
   }
 
+  // instance를 Supabase에 저장할 room_x/room_y를 계산한다. instance.locationType이 "room"이
+  // 아니면(도로 "path" 또는 광장 "plaza") 상대좌표로 바꾸지 않고 월드 절대좌표를 그대로 쓴다 -
+  // 도로/광장은 "내 방"처럼 owner마다 항상 똑같은 기준점이 없어서(관리자가 아무 통로 칸에나
+  // 놓을 수 있고, 광장은 애초에 owner 개념이 없다), 나중에 다시 불러올 때도 그대로 절대좌표로
+  // 되돌리면 된다 (buildInstanceFromRow/handleRemoteUpdate가 "room"이 아닐 때 똑같이 처리한다).
+  function computeStoredPosition(instance, room) {
+    if (instance.locationType !== "room") {
+      return { room_x: instance.x, room_y: instance.y };
+    }
+    return toRoomRelative(instance, room);
+  }
+
   // Supabase 행(row) 하나를 로컬 instance 객체로 만든다. 방을 못 찾거나(owner_code가 이상함)
   // 카탈로그에 없는 item_id(호출하는 쪽에서 미리 불러와야 함)면 null을 돌려주고 건너뛴다 -
   // 아이템 하나가 이상해도 나머지 렌더링 전체가 죽으면 안 되기 때문이다.
   function buildInstanceFromRow(row) {
-    const room = getRoomForOwnerCode(row.owner_code);
-    if (!room) {
-      console.error(`배치된 아이템(id=${row.id})의 owner_code(${row.owner_code})에 해당하는 방이 없어 건너뜁니다.`);
-      return null;
-    }
-
     const catalogEntry = ITEM_CATALOG_BY_ID[row.item_id];
     if (!catalogEntry) {
       console.error(`배치된 아이템(id=${row.id})의 item_id(${row.item_id})를 카탈로그에서 찾을 수 없어 건너뜁니다.`);
       return null;
     }
 
-    const { x, y } = fromRoomRelative(room, row.room_x, row.room_y);
+    // location_type이 "room"이 아닌(도로/광장) 행은 room_x/room_y가 이미 월드 절대좌표라,
+    // 기준이 되는 "방"을 찾을 필요가 없다 (도로/광장 아이템은 owner의 방과 아무 상관이 없다).
+    const locationType = row.location_type === "path" || row.location_type === "plaza" ? row.location_type : "room";
+    let x;
+    let y;
+    if (locationType !== "room") {
+      x = row.room_x;
+      y = row.room_y;
+    } else {
+      const room = getRoomForOwnerCode(row.owner_code);
+      if (!room) {
+        console.error(`배치된 아이템(id=${row.id})의 owner_code(${row.owner_code})에 해당하는 방이 없어 건너뜁니다.`);
+        return null;
+      }
+      ({ x, y } = fromRoomRelative(room, row.room_x, row.room_y));
+    }
 
     const instance = {
       instanceId: nextInstanceId++,
@@ -1202,6 +1322,7 @@ document.addEventListener("DOMContentLoaded", () => {
       itemId: row.item_id,
       ownerCode: row.owner_code,
       village: row.village_id,
+      locationType,
       x,
       y,
       scale: row.scale,
@@ -1218,16 +1339,19 @@ document.addEventListener("DOMContentLoaded", () => {
   // 않고 dbId만 붙여준다 (자기 자신의 INSERT가 중복 DOM을 만들지 않게 하는 방어의 일부).
   function findPendingLocalInsertMatch(row) {
     const EPSILON = 0.01; // px 단위 - 부동소수점 오차만 흡수하면 되므로 아주 작게 잡는다
-    const room = getRoomForOwnerCode(row.owner_code);
-    if (!room) return null;
+    const isAbsolute = row.location_type === "path" || row.location_type === "plaza"; // "room"이 아니면 절대좌표
+    const room = isAbsolute ? null : getRoomForOwnerCode(row.owner_code);
+    if (!isAbsolute && !room) return null;
 
     return (
       placedItems.find((item) => {
         if (item.dbId) return false; // dbId가 이미 있으면 "확정 대기 중"이 아니다
         if (item.ownerCode !== row.owner_code || item.itemId !== row.item_id) return false;
         if (item.scale !== row.scale || item.z !== row.z_order) return false;
+        if ((item.locationType !== "room") !== isAbsolute) return false;
 
-        const { room_x, room_y } = toRoomRelative(item, room);
+        // 도로/광장 아이템은 room_x/room_y가 이미 월드 절대좌표라 item.x/item.y와 직접 비교한다.
+        const { room_x, room_y } = isAbsolute ? { room_x: item.x, room_y: item.y } : toRoomRelative(item, room);
         return Math.abs(room_x - row.room_x) < EPSILON && Math.abs(room_y - row.room_y) < EPSILON;
       }) || null
     );
@@ -1241,7 +1365,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const client = await getSupabaseClient();
     if (!client) return; // Supabase 연결 자체가 없음 -> 이번 세션은 로컬 전용으로 계속 진행
 
-    const { room_x, room_y } = toRoomRelative(instance, room);
+    const { room_x, room_y } = computeStoredPosition(instance, room);
 
     const { data, error } = await client
       .from(PLACED_ITEMS_TABLE)
@@ -1249,6 +1373,7 @@ document.addEventListener("DOMContentLoaded", () => {
         owner_code: instance.ownerCode,
         item_id: instance.itemId,
         village_id: instance.village, // 마을이 섞이지 않도록 항상 명시적으로 채운다 (컬럼에 기본값 없음)
+        location_type: instance.locationType, // "room"/"path"/"plaza" - room_x/room_y 해석 방식을 결정
         room_x,
         room_y,
         scale: instance.scale,
@@ -1286,7 +1411,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // 크기 조절 버튼 전용: clampItemToRoom이 커진/작아진 아이템을 방 안으로 다시 밀어넣으면서
   // 위치도 같이 바뀔 수 있으므로, scale과 최신 room_x/room_y를 함께 보낸다.
   function syncPositionAndScaleRemote(instance) {
-    const { room_x, room_y } = toRoomRelative(instance, activeRoomForDecorate);
+    const { room_x, room_y } = computeStoredPosition(instance, activeRoomForDecorate);
     updatePlacedItemRemote(instance, { room_x, room_y, scale: instance.scale });
   }
 
@@ -1347,18 +1472,32 @@ document.addEventListener("DOMContentLoaded", () => {
     const instance = placedItems.find((item) => item.dbId === row.id);
     if (!instance) return;
 
-    const room = getRoomForOwnerCode(row.owner_code);
-    if (!room) return;
+    const locationType = row.location_type === "path" || row.location_type === "plaza" ? row.location_type : "room";
+    let room = null;
 
-    const { x, y } = fromRoomRelative(room, row.room_x, row.room_y);
-    instance.x = x;
-    instance.y = y;
+    if (locationType !== "room") {
+      // 도로/광장 행은 room_x/room_y가 이미 월드 절대좌표라 그대로 쓴다 - 기준이 되는 방이 없다.
+      instance.x = row.room_x;
+      instance.y = row.room_y;
+    } else {
+      room = getRoomForOwnerCode(row.owner_code);
+      if (!room) return;
+
+      const { x, y } = fromRoomRelative(room, row.room_x, row.room_y);
+      instance.x = x;
+      instance.y = y;
+    }
+
     instance.scale = row.scale;
     instance.z = row.z_order;
+    instance.locationType = locationType;
 
     // 지금 이 아이템을 내가 드래그/선택하고 있는 도중에 다른 곳에서 온 업데이트로 room 밖으로
-    // 나가버리는 일이 없도록, 소유자 방 기준으로 한 번 더 가둔다.
-    clampItemToRoom(instance, room);
+    // 나가버리는 일이 없도록, 소유자 방 기준으로 한 번 더 가둔다 (도로/광장 아이템은 고정된
+    // 기준 사각형이 없으므로 건너뛴다 - DB에 저장된 값 자체가 이미 놓을 당시에 유효하게 가둬진 값이다).
+    if (room) {
+      clampItemToRoom(instance, room);
+    }
     renderPlacedItem(instance);
 
     if (row.z_order >= nextZ) nextZ = row.z_order + 1;
