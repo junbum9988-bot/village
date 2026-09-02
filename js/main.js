@@ -9,21 +9,30 @@
  * 다루지 않는 것: Supabase Auth/RLS, 캐릭터 위치 동기화, 이미지 Storage 업로드.
  *
  * 구성
- *   - 맵 데이터 생성   : 방/통로/광장 데이터를 만들고 #world에 DOM으로 렌더링 (로그인과 무관, 한 번만 수행)
+ *   - 마을(VILLAGES)   : 여러 마을을 동시에 지원한다. 각 계정(js/accounts.js)은 village 필드로
+ *                        소속 마을을 밝히고, 로그인하면 그 마을의 LAYOUT으로 #world를 다시 그린다
+ *                        (buildVillageWorld, 2절). 마을마다 방 이름이 완전히 달라서, 같은 화면에는
+ *                        항상 한 마을만 존재한다 - 데이터가 섞일 걱정 없이 room 이름만으로 방을 찾을 수 있다.
+ *   - 맵 데이터 생성   : 로그인한 계정의 마을에 맞춰 방/통로/광장 데이터를 만들고 #world에 DOM으로
+ *                        렌더링한다 (buildVillageWorld, 로그인마다 다시 그림)
  *   - 입력 처리        : 방향키 / WASD / 화면 터치 방향키 입력 수집 (로그인 여부와 무관하게 항상 리스닝)
  *   - 게임 루프        : 로그인에 성공했을 때만 실행 (update → 이동/카메라, render → 화면 반영)
- *   - 전체 마을 보기    : 카메라를 줌아웃해 4x5 마을 전체를 보여주는 관람 전용 모드 (이동/조작 비활성)
+ *   - 전체 마을 보기    : 카메라를 줌아웃해 지금 마을(4x5) 전체를 보여주는 관람 전용 모드 (이동/조작 비활성)
  *   - 꾸미기 모드       : 자기 공간에서만 켤 수 있는 관람 전용 아님 모드. 이동은 멈추고 인벤토리에서
  *                        아이템을 골라 배치/이동/크기조절/삭제할 수 있다.
  *                        관리자(T00)와 학생(S01~S18) 계정은 각자 공통 아이템에 더해
  *                        assets/admin/items/items.json, assets/students/<번호>/items/items.json
  *                        에서 불러온 전용 아이템도 함께 보인다 (계정별 경로는 getPersonalItemsPath).
- *   - Supabase 연동    : 배치된 아이템(placedItems)을 Supabase의 placed_items 테이블에 저장하고,
- *                        페이지를 열면 전체를 한 번 불러와 렌더링한 뒤 Realtime으로 다른 접속자의
- *                        변경사항을 구독한다 (7-3절). 드래그 중간값/캐릭터 위치는 절대 보내지 않고,
- *                        "손을 놓는 순간"처럼 결과가 확정되는 시점에만 1회 INSERT/UPDATE/DELETE한다.
- *                        Supabase 연결이 안 되거나 요청이 실패해도 로컬 조작 자체는 계속 동작한다.
- *   - 로그인 흐름       : 접속 코드+PIN 검사, 성공 시 해당 학생 공간에서 게임 시작, 로그아웃 시 로그인 화면으로 복귀
+ *                        두 번째 마을 계정은 아직 전용 items.json이 없어 공통 아이템만 보인다.
+ *   - Supabase 연동    : 배치된 아이템(placedItems)을 Supabase의 placed_items 테이블에 저장한다.
+ *                        모든 행은 village_id 컬럼으로 마을을 구분하고, 로그인하면 그 계정의 마을에
+ *                        속한 행만 불러와 렌더링한 뒤 그 마을로 필터링된 Realtime 채널만 구독한다
+ *                        (7-3절 initPlacedItemsFromSupabase/subscribeToPlacedItemsRealtime).
+ *                        드래그 중간값/캐릭터 위치는 절대 보내지 않고, "손을 놓는 순간"처럼 결과가
+ *                        확정되는 시점에만 1회 INSERT/UPDATE/DELETE한다. Supabase 연결이 안 되거나
+ *                        요청이 실패해도 로컬 조작 자체는 계속 동작한다.
+ *   - 로그인 흐름       : 접속 코드+PIN 검사, 성공 시 해당 계정의 마을·공간에서 게임 시작, 로그아웃
+ *                        시 그 마을의 Realtime 구독을 정리하고 로그인 화면으로 복귀
  */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -37,17 +46,39 @@ document.addEventListener("DOMContentLoaded", () => {
   const COLS = 5;
   const ROWS = 4;
 
-  const WORLD_W = PATH_W * (COLS + 1) + ROOM_W * COLS;
-  const WORLD_H = PATH_W * (ROWS + 1) + ROOM_H * ROWS;
+  // 방/통로 크기(위)는 모든 마을이 공유하지만, 배치(어느 칸에 누가 사는지)는 마을마다 다르다.
+  // WORLD_W/WORLD_H/rooms/roomLabels는 로그인한 계정의 마을에 맞춰 buildVillageWorld()가
+  // 그때그때 다시 계산해 채워 넣으므로 여기서는 let으로만 선언해둔다.
+  let WORLD_W = 0;
+  let WORLD_H = 0;
 
-  // 학생 배치 (요구사항의 행/열 순서 그대로). 마지막 칸(4행 5열)은 광장.
-  // 각 이름은 js/accounts.js의 계정 이름과 정확히 일치해야 로그인 시 해당 공간을 찾을 수 있다.
-  const LAYOUT = [
-    ["준범", "강민", "동국", "라임", "태현"],
-    ["서준", "민호", "민서", "준석", "아영"],
-    ["지원", "서윤", "서율", "용욱", "명준"],
-    ["예설", "하늘", "현우", "혜윤", null], // null = 마을 광장
-  ];
+  // 마을별 배치(LAYOUT). 각 이름은 js/accounts.js에서 같은 village를 쓰는 계정의 이름과
+  // 정확히 일치해야 로그인 시 해당 공간을 찾을 수 있다. 마지막 칸(4행 5열)은 항상 광장(null).
+  //
+  // 새 마을을 추가할 때는:
+  //   1) 여기에 VILLAGES["village-N"] 항목을 추가하고
+  //   2) js/accounts.js에 해당 village를 쓰는 계정을 추가하면 된다.
+  // 기존 마을의 LAYOUT/계정은 절대 건드리지 않는다 - 서로 완전히 독립된 목록이다.
+  const VILLAGES = {
+    "village-1": {
+      layout: [
+        ["준범", "강민", "동국", "라임", "태현"],
+        ["서준", "민호", "민서", "준석", "아영"],
+        ["지원", "서윤", "서율", "용욱", "명준"],
+        ["예설", "하늘", "현우", "혜윤", null], // null = 마을 광장
+      ],
+    },
+    // 두 번째 마을 (임시 테스트용 - 실제 학생 명단이 아니라 자리표시용 이름을 씁니다).
+    "village-2": {
+      layout: [
+        ["관리자", "학생1", "학생2", "학생3", "학생4"],
+        ["학생5", "학생6", "학생7", "학생8", "학생9"],
+        ["학생10", "학생11", "학생12", "학생13", "학생14"],
+        ["학생15", "학생16", "학생17", "학생18", null], // null = 마을 광장
+      ],
+    },
+  };
+  const DEFAULT_VILLAGE_ID = "village-1"; // 계정에 village가 없거나 알 수 없는 값일 때의 안전한 대체값
 
   const PLAYER_SPEED = 300; // px / sec
   const PLAYER_RADIUS = 18; // 월드 경계 충돌에 사용하는 반지름
@@ -75,81 +106,110 @@ document.addEventListener("DOMContentLoaded", () => {
   const ITEMS_PER_PAGE = 20; // 인벤토리 한 페이지 최대 개수
 
   // ---------------------------------------------------------
-  // 2. 맵 데이터 생성 (로그인 여부와 무관하게 한 번만 만들어둔다)
+  // 2. 맵 데이터 생성
   // ---------------------------------------------------------
+  // 예전에는(마을이 하나뿐이던 시절) 페이지를 열 때 한 번만 만들면 됐지만, 지금은 계정마다
+  // 소속 마을이 다를 수 있으므로 로그인한 계정의 마을에 맞춰 buildVillageWorld()가 그때그때
+  // 다시 그린다 (enterGame에서 호출). rooms/roomLabels/WORLD_W/WORLD_H는 그 결과를 담는
+  // let 변수라서, 이 아래에 있는 다른 함수들이 매번 "현재 로그인한 계정의 마을" 기준 값을
+  // 그대로 참조하게 된다.
   const worldEl = document.getElementById("world");
-  worldEl.style.width = `${WORLD_W}px`;
-  worldEl.style.height = `${WORLD_H}px`;
+  const overviewLabelsEl = document.getElementById("overview-labels");
 
   /** @type {{row:number, col:number, x:number, y:number, w:number, h:number, name:string, isPlaza:boolean}[]} */
-  const rooms = [];
+  let rooms = [];
+  /** @type {{room:object, el:HTMLElement}[]} */
+  let roomLabels = [];
+  let currentVillageId = null; // 지금 #world에 그려져 있는 마을 (로그인 전에는 null)
 
-  LAYOUT.forEach((rowNames, row) => {
-    rowNames.forEach((name, col) => {
-      const isPlaza = name === null;
-      const x = PATH_W + col * (ROOM_W + PATH_W);
-      const y = PATH_W + row * (ROOM_H + PATH_W);
+  // 계정의 마을(villageId)에 맞춰 #world/#overview-labels를 처음부터 다시 그린다.
+  // 이전에 다른 마을(혹은 같은 마을)이 그려져 있었다면 innerHTML을 비워서 방/표지판은 물론,
+  // 그 안에 있던 배치 아이템 DOM까지 함께 지운다 - 배치 아이템의 JS 쪽 상태(placedItems 배열
+  // 등)는 로그인 흐름(exitToLogin/enterGame)에서 별도로 정리한다 (7-3절 참고).
+  function buildVillageWorld(villageId) {
+    const village = VILLAGES[villageId];
+    if (!village) {
+      console.error(`알 수 없는 마을 id(${villageId})입니다. ${DEFAULT_VILLAGE_ID}로 대신합니다.`);
+      villageId = DEFAULT_VILLAGE_ID;
+    }
+    const layout = (VILLAGES[villageId] || VILLAGES[DEFAULT_VILLAGE_ID]).layout;
 
-      rooms.push({
-        row,
-        col,
-        x,
-        y,
-        w: ROOM_W,
-        h: ROOM_H,
-        name: isPlaza ? "마을 광장" : name,
-        isPlaza,
+    WORLD_W = PATH_W * (COLS + 1) + ROOM_W * COLS;
+    WORLD_H = PATH_W * (ROWS + 1) + ROOM_H * ROWS;
+    worldEl.style.width = `${WORLD_W}px`;
+    worldEl.style.height = `${WORLD_H}px`;
+
+    rooms = [];
+    layout.forEach((rowNames, row) => {
+      rowNames.forEach((name, col) => {
+        const isPlaza = name === null;
+        const x = PATH_W + col * (ROOM_W + PATH_W);
+        const y = PATH_W + row * (ROOM_H + PATH_W);
+
+        rooms.push({
+          row,
+          col,
+          x,
+          y,
+          w: ROOM_W,
+          h: ROOM_H,
+          name: isPlaza ? "마을 광장" : name,
+          isPlaza,
+        });
       });
     });
-  });
 
-  // 방/광장 바닥 + 표지판 렌더링
-  const fragment = document.createDocumentFragment();
+    // 방/광장 바닥 + 표지판 렌더링 (이전 마을의 방/표지판/배치 아이템 DOM을 먼저 전부 지운다)
+    worldEl.innerHTML = "";
+    const fragment = document.createDocumentFragment();
 
-  rooms.forEach((room) => {
-    const roomEl = document.createElement("div");
-    roomEl.className = room.isPlaza ? "room plaza" : "room";
-    roomEl.style.left = `${room.x}px`;
-    roomEl.style.top = `${room.y}px`;
-    roomEl.style.width = `${room.w}px`;
-    roomEl.style.height = `${room.h}px`;
-    fragment.appendChild(roomEl);
+    rooms.forEach((room) => {
+      const roomEl = document.createElement("div");
+      roomEl.className = room.isPlaza ? "room plaza" : "room";
+      roomEl.style.left = `${room.x}px`;
+      roomEl.style.top = `${room.y}px`;
+      roomEl.style.width = `${room.w}px`;
+      roomEl.style.height = `${room.h}px`;
+      fragment.appendChild(roomEl);
 
-    // 표지판: 통로(아래쪽)를 향한 입구 쪽, 방 하단 중앙에 배치
-    const signEl = document.createElement("div");
-    signEl.className = "sign";
-    signEl.style.left = `${room.x + room.w / 2}px`;
-    signEl.style.top = `${room.y + room.h - 46}px`;
+      // 표지판: 통로(아래쪽)를 향한 입구 쪽, 방 하단 중앙에 배치
+      const signEl = document.createElement("div");
+      signEl.className = "sign";
+      signEl.style.left = `${room.x + room.w / 2}px`;
+      signEl.style.top = `${room.y + room.h - 46}px`;
 
-    const boardEl = document.createElement("div");
-    boardEl.className = room.isPlaza ? "sign-board plaza-board" : "sign-board";
-    boardEl.textContent = room.isPlaza ? "우리 반 마을 광장" : `${room.name}의 공간`;
+      const boardEl = document.createElement("div");
+      boardEl.className = room.isPlaza ? "sign-board plaza-board" : "sign-board";
+      boardEl.textContent = room.isPlaza ? "우리 반 마을 광장" : `${room.name}의 공간`;
 
-    const postEl = document.createElement("div");
-    postEl.className = "sign-post";
+      const postEl = document.createElement("div");
+      postEl.className = "sign-post";
 
-    signEl.appendChild(boardEl);
-    signEl.appendChild(postEl);
-    fragment.appendChild(signEl);
-  });
+      signEl.appendChild(boardEl);
+      signEl.appendChild(postEl);
+      fragment.appendChild(signEl);
+    });
 
-  worldEl.appendChild(fragment);
+    worldEl.appendChild(fragment);
 
-  // 전체 마을 보기 전용 이름표. #world 안에 두면 줌아웃 배율만큼 글자도 같이 작아져
-  // 안 보이게 되므로, 화면 배율의 영향을 받지 않는 #overview-labels(별도 레이어)에 만들어둔다.
-  // 평소에는 컨테이너 자체가 숨겨져 있고, 전체 마을 보기에 들어갈 때만 위치를 계산해 배치한다.
-  const overviewLabelsEl = document.getElementById("overview-labels");
-  const overviewLabelFragment = document.createDocumentFragment();
+    // 전체 마을 보기 전용 이름표. #world 안에 두면 줌아웃 배율만큼 글자도 같이 작아져
+    // 안 보이게 되므로, 화면 배율의 영향을 받지 않는 #overview-labels(별도 레이어)에 만들어둔다.
+    // 평소에는 컨테이너 자체가 숨겨져 있고, 전체 마을 보기에 들어갈 때만 위치를 계산해 배치한다.
+    overviewLabelsEl.innerHTML = "";
+    const overviewLabelFragment = document.createDocumentFragment();
 
-  const roomLabels = rooms.map((room) => {
-    const labelEl = document.createElement("div");
-    labelEl.className = room.isPlaza ? "overview-label plaza" : "overview-label";
-    labelEl.textContent = room.isPlaza ? "🏛 마을 광장" : room.name;
-    overviewLabelFragment.appendChild(labelEl);
-    return { room, el: labelEl };
-  });
+    roomLabels = rooms.map((room) => {
+      const labelEl = document.createElement("div");
+      labelEl.className = room.isPlaza ? "overview-label plaza" : "overview-label";
+      labelEl.textContent = room.isPlaza ? "🏛 마을 광장" : room.name;
+      overviewLabelFragment.appendChild(labelEl);
+      return { room, el: labelEl };
+    });
 
-  overviewLabelsEl.appendChild(overviewLabelFragment);
+    overviewLabelsEl.appendChild(overviewLabelFragment);
+
+    currentVillageId = villageId;
+  }
 
   // ---------------------------------------------------------
   // 3. DOM 참조
@@ -855,6 +915,10 @@ document.addEventListener("DOMContentLoaded", () => {
       dbId: null, // Supabase INSERT가 성공하면 여기에 발급된 UUID가 채워진다 (아래 insertPlacedItemRemote)
       itemId: catalogEntry.id,
       ownerCode: currentAccount.code,
+      // 어느 마을 소속인지 (placed_items.village_id로 저장됨). currentAccount.village가 비어있거나
+      // 잘못된 값이어도 buildVillageWorld가 이미 currentVillageId를 안전한 값으로 정규화해뒀으므로
+      // 이쪽을 쓴다.
+      village: currentVillageId,
       x: room.x + room.w / 2 + jitterX,
       y: room.y + room.h / 2 + jitterY,
       scale: 1,
@@ -1055,6 +1119,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // 아무 일도 하지 않고 넘어가도록 만들어서, Supabase 관련 문제가 게임 자체를 막지 않게 한다.
   const PLACED_ITEMS_TABLE = "placed_items";
 
+  // 지금 구독 중인 Realtime 채널. 로그아웃하거나(다른 마을로 다시 로그인할 수도 있으므로) 다른
+  // 계정으로 바뀔 때 unsubscribePlacedItemsRealtime()으로 정리한다.
+  let realtimeChannel = null;
+
   let supabaseClientPromise = null;
   function getSupabaseClient() {
     if (!supabaseClientPromise) {
@@ -1066,8 +1134,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 접속 코드로 그 학생/관리자의 "방"을 찾는다. Supabase 행에는 좌표만 있고 계정 이름이 없으므로,
-  // js/accounts.js가 전역으로 노출하는 ACCOUNTS_BY_CODE로 이름을 알아낸 다음 LAYOUT 기반의
-  // rooms에서 같은 이름의 방을 찾는다 (placePlayerForAccount가 하는 것과 같은 방식).
+  // js/accounts.js가 전역으로 노출하는 ACCOUNTS_BY_CODE로 이름을 알아낸 다음, 지금 화면에 그려진
+  // 마을의 rooms(currentVillageId 기준, buildVillageWorld가 채워 넣음)에서 같은 이름의 방을
+  // 찾는다 (placePlayerForAccount가 하는 것과 같은 방식). placed_items 조회/구독 자체가 이미
+  // village_id로 걸러져 있으므로, 여기서 만나는 owner_code는 항상 지금 마을 소속이다.
   function getRoomForOwnerCode(ownerCode) {
     const account = ACCOUNTS_BY_CODE[String(ownerCode || "").toUpperCase()];
     if (!account) return null;
@@ -1108,6 +1178,7 @@ document.addEventListener("DOMContentLoaded", () => {
       dbId: row.id,
       itemId: row.item_id,
       ownerCode: row.owner_code,
+      village: row.village_id,
       x,
       y,
       scale: row.scale,
@@ -1154,6 +1225,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .insert({
         owner_code: instance.ownerCode,
         item_id: instance.itemId,
+        village_id: instance.village, // 마을이 섞이지 않도록 항상 명시적으로 채운다 (컬럼에 기본값 없음)
         room_x,
         room_y,
         scale: instance.scale,
@@ -1212,8 +1284,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 다른 접속자가 아이템을 새로 놓았을 때. 이미 로컬에 있는(dbId가 같은) 아이템이면 - 그게
   // 나 자신이 방금 놓은 것이 확정된 경우든, 이미 다른 경로로 반영된 경우든 - 다시 만들지 않는다.
+  //
+  // village_id 체크: 구독 자체를 village_id로 필터링해서 걸어두지만(subscribeToPlacedItemsRealtime),
+  // 로그아웃 직후처럼 구독 해제가 아직 서버에 반영되기 전에 이전 마을의 이벤트가 한두 개 더
+  // 도착할 수 있다. 그런 이벤트가 지금 화면에 그려진 마을(currentVillageId)과 다르면 무조건
+  // 무시해서, "마을 데이터가 섞이지 않아야 한다"는 조건이 타이밍에 관계없이 항상 지켜지게 한다.
   async function handleRemoteInsert(row) {
-    if (!row) return;
+    if (!row || row.village_id !== currentVillageId) return;
 
     if (placedItems.some((item) => item.dbId === row.id)) return; // 이미 로컬에 있음 -> 중복 방지
 
@@ -1240,8 +1317,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 다른 접속자가 위치/크기/순서를 바꿨을 때(혹은 내가 보낸 UPDATE가 되돌아왔을 때 - 같은 값을
   // 다시 적용할 뿐이라 무해하다). 로컬에 없는 dbId면(아직 초기 로드 전이거나 이미 삭제됨) 무시한다.
+  // village_id 체크는 handleRemoteInsert와 같은 이유 (구독 해제 타이밍 race에 대한 안전망).
   function handleRemoteUpdate(row) {
-    if (!row) return;
+    if (!row || row.village_id !== currentVillageId) return;
 
     const instance = placedItems.find((item) => item.dbId === row.id);
     if (!instance) return;
@@ -1278,20 +1356,30 @@ document.addEventListener("DOMContentLoaded", () => {
     removed.el.remove();
   }
 
-  // placed_items 테이블의 INSERT/UPDATE/DELETE를 구독한다. 로그인 여부와 무관하게 페이지를 여는
-  // 동안 계속 켜져 있다 (마을 전체가 항상 화면에 존재하고, 누구나 돌아다니며 다른 방을 볼 수
-  // 있으므로 로그인/로그아웃 시마다 다시 구독할 필요가 없다).
-  function subscribeToPlacedItemsRealtime(client) {
-    client
-      .channel("placed-items-sync")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: PLACED_ITEMS_TABLE }, (payload) =>
-        handleRemoteInsert(payload.new)
+  // placed_items 테이블의 INSERT/UPDATE/DELETE를 구독한다. 로그인한 계정의 마을(villageId)로
+  // 필터를 걸어서, 서버 쪽에서부터 다른 마을의 이벤트는 애초에 이 채널로 오지 않는다
+  // (handleRemoteInsert/Update의 village_id 체크는 그 위에 얹는 이중 안전장치).
+  // 채널을 realtimeChannel에 저장해두는 이유는, 로그아웃하거나 다른 계정으로 다시 로그인할 때
+  // unsubscribePlacedItemsRealtime()이 정확히 "지금 켜져 있는" 채널을 끌 수 있어야 하기 때문이다.
+  function subscribeToPlacedItemsRealtime(client, villageId) {
+    const filter = `village_id=eq.${villageId}`;
+
+    realtimeChannel = client
+      .channel(`placed-items-sync-${villageId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: PLACED_ITEMS_TABLE, filter },
+        (payload) => handleRemoteInsert(payload.new)
       )
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: PLACED_ITEMS_TABLE }, (payload) =>
-        handleRemoteUpdate(payload.new)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: PLACED_ITEMS_TABLE, filter },
+        (payload) => handleRemoteUpdate(payload.new)
       )
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: PLACED_ITEMS_TABLE }, (payload) =>
-        handleRemoteDelete(payload.old)
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: PLACED_ITEMS_TABLE, filter },
+        (payload) => handleRemoteDelete(payload.old)
       )
       .subscribe((status, err) => {
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
@@ -1300,13 +1388,32 @@ document.addEventListener("DOMContentLoaded", () => {
       });
   }
 
-  // 게임 최초 진입(페이지를 연 시점, 로그인 여부와 무관)에 placed_items 전체를 한 번 불러와
-  // 렌더링하고, nextZ를 복원하고, Realtime 구독을 시작한다. 아래에서 한 번만 호출된다.
+  // 로그아웃하거나(exitToLogin) 다른 계정으로 다시 로그인하기 직전에 지금 구독 중인 채널을 끈다.
+  // 이걸 안 하면 이전 마을 채널이 계속 열려 있는 채로 새 마을 채널이 하나 더 생겨서, 이벤트가
+  // 두 번 처리되거나(성능 낭비) 최악의 경우 화면에 잘못 반영될 여지가 생긴다.
+  async function unsubscribePlacedItemsRealtime() {
+    if (!realtimeChannel) return;
+    const channel = realtimeChannel;
+    realtimeChannel = null;
+
+    const client = await getSupabaseClient();
+    if (!client) return;
+
+    try {
+      await client.removeChannel(channel);
+    } catch (err) {
+      console.error("Supabase Realtime 구독 해제 중 오류가 발생했습니다 (무시하고 계속 진행합니다):", err);
+    }
+  }
+
+  // 로그인한 계정의 마을(villageId)에 속한 placed_items만 한 번 불러와 렌더링하고, nextZ를
+  // 복원하고, 그 마을 전용 Realtime 구독을 시작한다. enterGame()에서 매 로그인마다 호출된다
+  // (villageId가 이전 로그인과 같더라도 buildVillageWorld가 #world를 다시 그렸으므로 다시
+  // 불러와 채워 넣어야 한다).
   //
   // "아직 개인 catalog가 로드되지 않아 item_id를 못 찾는" 문제를 피하기 위해, 불러온 행들에
-  // 등장하는 모든 owner_code의 개인 카탈로그를 먼저 전부 불러온 다음에(Promise.all) 그려야
-  // 한다 - 로그인 전이라 currentAccount가 없어도, 방문 중인 계정이 아직 로그인 안 했어도 상관없다.
-  async function initPlacedItemsFromSupabase() {
+  // 등장하는 모든 owner_code의 개인 카탈로그를 먼저 전부 불러온 다음에(Promise.all) 그린다.
+  async function initPlacedItemsFromSupabase(villageId) {
     try {
       const client = await getSupabaseClient();
       if (!client) {
@@ -1314,15 +1421,24 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      const { data, error } = await client.from(PLACED_ITEMS_TABLE).select("*");
+      const { data, error } = await client
+        .from(PLACED_ITEMS_TABLE)
+        .select("*")
+        .eq("village_id", villageId);
       if (error) {
         console.error("Supabase에서 배치된 아이템을 불러오지 못했습니다 (로컬 전용으로 시작합니다):", error);
         return;
       }
 
+      // 응답이 오는 동안 로그아웃했거나 다른 계정(다른 마을)으로 다시 로그인했으면, 지금은 이미
+      // 화면에 없는 마을의 데이터이므로 그리지 않고 조용히 버린다.
+      if (villageId !== currentVillageId) return;
+
       const rows = data || [];
       const ownerCodes = Array.from(new Set(rows.map((row) => row.owner_code)));
       await Promise.all(ownerCodes.map((code) => loadPersonalItemCatalog({ code })));
+
+      if (villageId !== currentVillageId) return; // 카탈로그를 불러오는 동안에도 같은 이유로 한 번 더 확인
 
       let maxZ = 0;
       rows.forEach((row) => {
@@ -1337,7 +1453,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       nextZ = maxZ + 1; // 이후 "앞으로" 버튼 등이 항상 불러온 최댓값보다 크게 매겨지도록 복원
 
-      subscribeToPlacedItemsRealtime(client);
+      subscribeToPlacedItemsRealtime(client, villageId);
     } catch (err) {
       console.error("배치된 아이템을 초기화하는 중 예상치 못한 오류가 발생했습니다 (로컬 전용으로 계속 진행합니다):", err);
     }
@@ -1375,6 +1491,11 @@ document.addEventListener("DOMContentLoaded", () => {
     currentAccount = account;
     hudNameEl.textContent = `👤 ${account.name}`;
 
+    // 계정이 속한 마을을 먼저 그린다 (없거나 알 수 없는 값이면 buildVillageWorld가
+    // DEFAULT_VILLAGE_ID로 안전하게 대체한다). placePlayerForAccount가 이 마을의 rooms를
+    // 바로 참조하므로 반드시 이 순서(마을 먼저, 그다음 플레이어 배치)여야 한다.
+    buildVillageWorld(account.village || DEFAULT_VILLAGE_ID);
+
     loginScreenEl.hidden = true;
     gameScreenEl.hidden = false;
 
@@ -1385,6 +1506,9 @@ document.addEventListener("DOMContentLoaded", () => {
     render();
 
     startLoop();
+
+    // 이 계정의 마을에 속한 배치 아이템만 불러오고, 그 마을 전용 Realtime 채널을 구독한다.
+    initPlacedItemsFromSupabase(currentVillageId);
   }
 
   function exitToLogin() {
@@ -1400,8 +1524,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // 꾸미기 중에 로그아웃하는 경우도 마찬가지로 화면 상태를 되돌린다.
-    // (배치해둔 아이템 자체는 지우지 않는다 - 같은 브라우저 세션에서 다시 로그인하면 그대로 보인다.
-    //  전부 사라지는 건 "새로고침했을 때"뿐이라는 요구사항에 맞춘 것.)
+    // (배치해둔 아이템 자체는 지우지 않는다 - Supabase에 저장되어 있으므로 같은 계정으로든
+    //  다른 계정으로든 다시 로그인하면 그 마을 데이터가 다시 불러와진다. 여기서 지우는 건
+    //  DOM/JS 쪽의 "지금 화면에 그려진" 상태일 뿐이다.)
     if (decorateMode) {
       decorateMode = false;
       activeRoomForDecorate = null;
@@ -1414,6 +1539,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
     keyboardPressed.clear();
     touchPressed.clear();
+
+    // 다음 로그인이 다른 마을일 수 있으므로, 지금 마을의 Realtime 구독과 배치 아이템 상태를
+    // 확실히 정리한다. #world 자체는 다음 enterGame()의 buildVillageWorld가 다시 그리면서
+    // 이 안의 아이템 DOM도 함께 지우지만, placedItems 배열 등 JS 쪽 상태는 여기서 직접
+    // 비워야 그 사이(로그인 화면에 머무는 동안)에 남은 참조가 없다.
+    unsubscribePlacedItemsRealtime();
+    placedItems.length = 0;
+    selectedItem = null;
+    nextInstanceId = 1;
+    nextZ = 1;
+    activeItemCatalog = BASE_ITEM_CATALOG;
+    currentVillageId = null;
 
     currentAccount = null;
     gameScreenEl.hidden = true;
@@ -1451,9 +1588,7 @@ document.addEventListener("DOMContentLoaded", () => {
   logoutBtnEl.addEventListener("click", exitToLogin);
 
   // 페이지를 열면 로그인 화면이 먼저 보이는 상태이므로, 접속 코드 입력창에 포커스를 맞춰준다.
+  // (마을은 계정마다 다를 수 있어서, #world를 그리고 Supabase에서 배치 아이템을 불러오는 일은
+  // 이제 여기서 미리 하지 않는다 - 로그인해서 어느 마을 계정인지 알게 된 뒤 enterGame()이 한다.)
   loginCodeEl.focus();
-
-  // 로그인 여부와 무관하게, 페이지를 연 시점에 Supabase에 저장된 배치 아이템을 전부 불러와
-  // 마을에 그려 넣는다 (7-3절). 비동기로 진행되며 실패해도 위 로그인 화면 등에는 영향이 없다.
-  initPlacedItemsFromSupabase();
 });
