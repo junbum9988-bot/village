@@ -1,5 +1,133 @@
 [
   {
+    "id": "s03-1000001016",
+    "name": "1000001016",
+    "image": "assets/students/03/items/1000001016.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s03-1000001363",
+    "name": "1000001363",
+    "image": "assets/students/03/items/1000001363.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s03-1000001365",
+    "name": "1000001365",
+    "image": "assets/students/03/items/1000001365.webp",
+    "animated": false,
+    "w": 96,
+    "h": 73
+  },
+  {
+    "id": "s03-1000001370",
+    "name": "1000001370",
+    "image": "assets/students/03/items/1000001370.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s03-1000001430",
+    "name": "1000001430",
+    "image": "assets/students/03/items/1000001430.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s03-1000001431",
+    "name": "1000001431",
+    "image": "assets/students/03/items/1000001431.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s03-1000001432",
+    "name": "1000001432",
+    "image": "assets/students/03/items/1000001432.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s03-1000001439",
+    "name": "1000001439",
+    "image": "assets/students/03/items/1000001439.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s03-1000001440",
+    "name": "1000001440",
+    "image": "assets/students/03/items/1000001440.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s03-1000001448",
+    "name": "1000001448",
+    "image": "assets/students/03/items/1000001448.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s03-1000001464",
+    "name": "1000001464",
+    "image": "assets/students/03/items/1000001464.webp",
+    "animated": false,
+    "w": 77,
+    "h": 96
+  },
+  {
+    "id": "s03-1000001468",
+    "name": "1000001468",
+    "image": "assets/students/03/items/1000001468.webp",
+    "animated": false,
+    "w": 93,
+    "h": 96
+  },
+  {
+    "id": "s03-1000001472",
+    "name": "1000001472",
+    "image": "assets/students/03/items/1000001472.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s03-1000001501",
+    "name": "1000001501",
+    "image": "assets/students/03/items/1000001501.webp",
+    "animated": false,
+    "w": 94,
+    "h": 96
+  },
+  {
+    "id": "s03-1000001504",
+    "name": "1000001504",
+    "image": "assets/students/03/items/1000001504.webp",
+    "animated": false,
+    "w": 96,
+    "h": 58
+  },
+  {
+    "id": "s03-1000001505",
+    "name": "1000001505",
+    "image": "assets/students/03/items/1000001505.webp",
+    "animated": false,
+    "w": 96,
+    "h": 58
+  },
+  {
     "id": "s03-준범-나무1",
     "name": "준범_나무1",
     "image": "assets/students/03/items/준범_나무1.webp",

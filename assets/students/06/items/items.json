@@ -1,0 +1,50 @@
+[
+  {
+    "id": "s06-1000000697",
+    "name": "1000000697",
+    "image": "assets/students/06/items/1000000697.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s06-1000000770",
+    "name": "1000000770",
+    "image": "assets/students/06/items/1000000770.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s06-1000000789",
+    "name": "1000000789",
+    "image": "assets/students/06/items/1000000789.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s06-1000000790",
+    "name": "1000000790",
+    "image": "assets/students/06/items/1000000790.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s06-1000000792",
+    "name": "1000000792",
+    "image": "assets/students/06/items/1000000792.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s06-1000000833",
+    "name": "1000000833",
+    "image": "assets/students/06/items/1000000833.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  }
+]

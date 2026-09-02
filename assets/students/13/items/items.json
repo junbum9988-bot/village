@@ -1,0 +1,82 @@
+[
+  {
+    "id": "s13-1000000251",
+    "name": "1000000251",
+    "image": "assets/students/13/items/1000000251.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s13-1000001174",
+    "name": "1000001174",
+    "image": "assets/students/13/items/1000001174.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s13-1000001175",
+    "name": "1000001175",
+    "image": "assets/students/13/items/1000001175.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s13-1000001178",
+    "name": "1000001178",
+    "image": "assets/students/13/items/1000001178.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s13-1000001196",
+    "name": "1000001196",
+    "image": "assets/students/13/items/1000001196.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s13-1000001213",
+    "name": "1000001213",
+    "image": "assets/students/13/items/1000001213.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s13-1000001215",
+    "name": "1000001215",
+    "image": "assets/students/13/items/1000001215.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s13-1000001216",
+    "name": "1000001216",
+    "image": "assets/students/13/items/1000001216.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s13-1000001217",
+    "name": "1000001217",
+    "image": "assets/students/13/items/1000001217.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s13-1000001238",
+    "name": "1000001238",
+    "image": "assets/students/13/items/1000001238.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  }
+]

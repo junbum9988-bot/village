@@ -1,5 +1,45 @@
 [
   {
+    "id": "s12-34-20260608143420",
+    "name": "__34_20260608143420",
+    "image": "assets/students/12/items/__34_20260608143420.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s12-40-20260624144555",
+    "name": "__40_20260624144555",
+    "image": "assets/students/12/items/__40_20260624144555.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s12-44-20260617124532",
+    "name": "__44_20260617124532",
+    "image": "assets/students/12/items/__44_20260617124532.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s12-48-20260622142433",
+    "name": "__48_20260622142433",
+    "image": "assets/students/12/items/__48_20260622142433.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s12-51-20260902092857",
+    "name": "__51_20260902092857",
+    "image": "assets/students/12/items/__51_20260902092857.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
     "id": "s12-준범-나무1",
     "name": "준범_나무1",
     "image": "assets/students/12/items/준범_나무1.webp",

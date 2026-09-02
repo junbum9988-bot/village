@@ -1,0 +1,58 @@
+[
+  {
+    "id": "s17-1000000811",
+    "name": "1000000811",
+    "image": "assets/students/17/items/1000000811.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s17-1000000821",
+    "name": "1000000821",
+    "image": "assets/students/17/items/1000000821.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s17-1000000824",
+    "name": "1000000824",
+    "image": "assets/students/17/items/1000000824.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s17-1000000826",
+    "name": "1000000826",
+    "image": "assets/students/17/items/1000000826.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s17-1000000828",
+    "name": "1000000828",
+    "image": "assets/students/17/items/1000000828.webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s17-1000000844-1",
+    "name": "1000000844_(1)",
+    "image": "assets/students/17/items/1000000844_(1).webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  },
+  {
+    "id": "s17-1000000845-1",
+    "name": "1000000845_(1)",
+    "image": "assets/students/17/items/1000000845_(1).webp",
+    "animated": false,
+    "w": 96,
+    "h": 96
+  }
+]

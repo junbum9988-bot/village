@@ -1,0 +1,18 @@
+[
+  {
+    "id": "s11-1000001141",
+    "name": "1000001141",
+    "image": "assets/students/11/items/1000001141.webp",
+    "animated": false,
+    "w": 96,
+    "h": 91
+  },
+  {
+    "id": "s11-1000001145",
+    "name": "1000001145",
+    "image": "assets/students/11/items/1000001145.webp",
+    "animated": false,
+    "w": 96,
+    "h": 93
+  }
+]
