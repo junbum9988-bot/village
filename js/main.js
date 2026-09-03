@@ -356,6 +356,57 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   }
 
+  // 꾸미기 모드에 들어갈 때, 지금 꾸밀 구역(zone) 전체가 화면 안에 다 들어오도록 카메라를
+  // 맞춘다. 오른쪽에 인벤토리 패널(#side-panel)이 펼쳐지면서 #game-stage 폭이 줄어드는데,
+  // 그동안 게임 루프는 멈춰 있어(stopLoop) 카메라가 다시 계산되지 않으므로, 패널이 열린 뒤의
+  // stageEl.clientWidth/Height를 기준으로 이 함수를 호출한 시점에 한 번 맞춰준다
+  // (enterDecorateMode 참고). computeOverviewCamera와 같은 방식이지만, 화면이 구역보다 넉넉히
+  // 클 때는 1:1보다 확대하지 않는다(Math.min(1, ...)) - 평소 이동 화면과 배율이 갑자기
+  // 달라지는 게 오히려 어색하기 때문에, 다 들어가지 않을 때만 축소한다.
+  // #side-panel은 화면 폭에 따라 두 가지 방식으로 자리잡는다 (css/style.css 참고):
+  //   - 넓은 화면(640px 초과): #game-stage와 나란한 flex 형제 -> #game-stage 자체가 좁아지므로
+  //     stageEl.clientWidth에 이미 반영돼 있다.
+  //   - 좁은 화면(640px 이하): position:absolute로 #game-stage 위에 오버레이 -> #game-stage
+  //     크기는 그대로라 clientWidth만으로는 가려지는 폭을 알 수 없다.
+  // 두 경우 모두 안전하게 처리하려고, 640px라는 값을 여기 다시 하드코딩하는 대신 두 요소의
+  // 실제 화면 좌표(getBoundingClientRect)가 겹치는 폭을 직접 계산한다 - 겹치지 않으면(넓은 화면)
+  // 자연히 0이 나온다.
+  function getStageVisibleWidth() {
+    const stageRect = stageEl.getBoundingClientRect();
+    if (sidePanelEl.hidden) return stageRect.width;
+
+    const panelRect = sidePanelEl.getBoundingClientRect();
+    const overlapLeft = Math.max(stageRect.left, panelRect.left);
+    const overlapRight = Math.min(stageRect.right, panelRect.right);
+    const overlapWidth = Math.max(0, overlapRight - overlapLeft);
+
+    return Math.max(0, stageRect.width - overlapWidth);
+  }
+
+  // 꾸미기 모드에 들어갈 때, 지금 꾸밀 구역(zone) 전체가 인벤토리 패널에 가리지 않는 영역
+  // 안에 들어오도록 카메라를 맞춘다. 오른쪽에 인벤토리 패널(#side-panel)이 펼쳐지면서 실제로
+  // 보이는 폭이 줄어드는데(getStageVisibleWidth 참고), 그동안 게임 루프는 멈춰 있어(stopLoop)
+  // 카메라가 다시 계산되지 않으므로, 패널이 열린 뒤 이 함수를 호출한 시점에 한 번 맞춰준다
+  // (enterDecorateMode 참고). computeOverviewCamera와 같은 방식이지만, 화면이 구역보다 넉넉히
+  // 클 때는 1:1보다 확대하지 않는다(Math.min(1, ...)) - 평소 이동 화면과 배율이 갑자기
+  // 달라지는 게 오히려 어색하기 때문에, 다 들어가지 않을 때만 축소한다.
+  function computeDecorateFitCamera(zone) {
+    const visibleW = getStageVisibleWidth(); // 패널에 가려지지 않는 실제 폭
+    const viewH = stageEl.clientHeight; // 패널은 세로로는 가리지 않으므로 높이는 그대로 쓴다
+    const FIT_MARGIN = 0.92; // 구역 가장자리가 패널/화면 끝에 딱 붙지 않도록 약간 여백을 둔다.
+
+    const scale = Math.min(1, Math.min(visibleW / zone.w, viewH / zone.h) * FIT_MARGIN);
+
+    return {
+      scale,
+      // x는 stageEl 왼쪽 끝 기준으로 "가려지지 않는 영역의 중앙"에 구역 중심이 오도록 맞춘다
+      // (패널이 오른쪽을 덮으므로, 전체 stageEl 폭 대신 visibleW를 기준으로 중앙을 잡아야
+      // 구역이 실제로 보이는 왼쪽 영역 안에 위치한다).
+      x: zone.x + zone.w / 2 - visibleW / (2 * scale),
+      y: zone.y + zone.h / 2 - viewH / (2 * scale),
+    };
+  }
+
   // ---------------------------------------------------------
   // 5. 입력 처리 (방향키 + WASD) - 로그인 여부와 무관하게 항상 리스닝한다.
   // ---------------------------------------------------------
@@ -1128,17 +1179,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 관리자/학생 계정은 공통 아이템에 더해 각자 전용 items.json 아이템도 함께 보여준다.
     // 전용 카탈로그가 없는 계정(코드 형식이 안 맞는 경우 등)은 getPersonalItemsPath가
-    // null을 반환하므로 자연히 공통 아이템만 보이는 아래 기본 경로로 빠진다.
+    // null을 반환하므로 자연히 공통 아이템만 쓰는 아래 기본값 그대로 간다.
     const personalItemsPath = getPersonalItemsPath(currentAccount);
+    activeItemCatalog = BASE_ITEM_CATALOG.concat(
+      personalItemsPath ? getCachedPersonalItems(currentAccount) : []
+    ); // 캐시가 있으면 즉시 반영, 없으면 로딩이 끝난 뒤 아래 then()에서 다시 채워 넣는다
+    renderInventory();
+
+    // 인벤토리 패널을 펼친다. 폭 340px짜리 패널이 오른쪽에서 #game-stage의 flex 공간을
+    // 가져가면서 스테이지가 좁아지므로, 패널이 화면에 반영된 뒤(stageEl.clientWidth가 이미
+    // 좁아진 값을 돌려주는 시점)에 꾸밀 구역 전체가 들어오도록 카메라를 다시 맞추고 즉시
+    // render()한다 - 안 그러면 게임 루프가 멈춰 있어(stopLoop) 패널에 가려진 채로 남는다.
+    sidePanelEl.hidden = false;
+    stageEl.classList.add("decorate-active");
+    refreshHudControls();
+
+    const fit = computeDecorateFitCamera(decorateZone);
+    camera.x = fit.x;
+    camera.y = fit.y;
+    camera.scale = fit.scale;
+    render();
 
     if (personalItemsPath) {
       const accountAtRequest = currentAccount; // 응답이 오기 전에 로그아웃/다른 계정으로 바뀌었는지 확인용
-
-      activeItemCatalog = BASE_ITEM_CATALOG.concat(getCachedPersonalItems(currentAccount)); // 캐시가 있으면 즉시 반영
-      renderInventory();
-      sidePanelEl.hidden = false;
-      stageEl.classList.add("decorate-active");
-      refreshHudControls();
 
       loadPersonalItemCatalog(currentAccount).then((items) => {
         // 로딩되는 동안 꾸미기 모드를 빠져나갔거나 다른 계정으로 바뀌었으면 화면을 건드리지 않는다.
@@ -1146,15 +1209,7 @@ document.addEventListener("DOMContentLoaded", () => {
         activeItemCatalog = BASE_ITEM_CATALOG.concat(items);
         renderInventory();
       });
-      return;
     }
-
-    activeItemCatalog = BASE_ITEM_CATALOG;
-    renderInventory();
-    sidePanelEl.hidden = false;
-
-    stageEl.classList.add("decorate-active");
-    refreshHudControls();
   }
 
   function exitDecorateMode() {
@@ -1166,6 +1221,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
     sidePanelEl.hidden = true;
     stageEl.classList.remove("decorate-active");
+
+    // 꾸미기 모드에서 구역 전체를 보여주려고 줄였던 배율(computeDecorateFitCamera)을 되돌리고,
+    // 패널이 닫혀 다시 넓어진 stageEl 기준으로 플레이어를 중심에 맞춘다. startLoop()가 다시
+    // 돌기 시작하면 update()가 이 위치에서부터 부드럽게 따라가므로, 여기서는 스냅으로 맞춰두고
+    // 즉시 한 번 그려서 다음 프레임까지 옛 배율/위치가 남아있지 않게 한다.
+    camera.scale = 1;
+    const restored = getClampedCamera(player.x, player.y);
+    camera.x = restored.x;
+    camera.y = restored.y;
+    render();
 
     refreshHudControls();
     startLoop();
